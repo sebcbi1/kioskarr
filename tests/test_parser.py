@@ -1,6 +1,6 @@
 import pytest
 
-from magazinerr.parser import normalize, parse
+from magazinerr.parser import identifier_sort_key, is_identifier_newer, normalize, parse
 
 # (release_title, expected_identifier, expected_kind, title_substring_expected)
 DATE_AND_ISSUE_CASES = [
@@ -83,3 +83,22 @@ def test_bare_french_issue_marker_without_date():
     result = parse("Le Monde Diplomatique N125.pdf")
     assert result.identifier == "issue-125"
     assert result.identifier_kind == "issue"
+
+
+def test_identifier_sort_key_orders_dates_correctly():
+    assert identifier_sort_key("2026-06-23") < identifier_sort_key("2026-06-24")
+    assert identifier_sort_key("2026-04") < identifier_sort_key("2026-04-02")  # month-only sorts before any specific day
+    assert identifier_sort_key("2025-12") < identifier_sort_key("2026-01")
+
+
+def test_identifier_sort_key_orders_issue_numbers_numerically_not_lexicographically():
+    # Plain string comparison would get this backwards: "issue-10" < "issue-9".
+    assert identifier_sort_key("issue-9") < identifier_sort_key("issue-10")
+
+
+def test_is_identifier_newer():
+    assert is_identifier_newer("2026-07", None) is True
+    assert is_identifier_newer("2026-07", "2026-06") is True
+    assert is_identifier_newer("2026-06", "2026-07") is False
+    assert is_identifier_newer("2026-06", "2026-06") is False  # not strictly newer than itself
+    assert is_identifier_newer("issue-10", "issue-9") is True

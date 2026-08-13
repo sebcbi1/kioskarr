@@ -3,6 +3,14 @@ parse+match candidates, and grab anything new that isn't already owned or in fli
 
 No canonical release calendar exists for this content type, so this is reactive:
 search now, decide from what comes back — see plan's Context section.
+
+Cold start (a publication's very first search) is a special case: an indexer can
+return the entire back-catalog it happens to have (we've seen 80+ historical
+issues for a single title), and every one of them looks "new" since nothing is
+owned yet. Instead of grabbing all of it, only the `grab_last_n` most recent
+eligible candidates are grabbed, and a `baseline_identifier` floor is recorded so
+nothing at or below it is ever reconsidered — including on later cycles, which
+also protects against an old issue resurfacing (e.g. a reseed) in search results.
 """
 
 import logging
@@ -12,8 +20,8 @@ from sqlalchemy.orm import Session
 from magazinerr.config import settings
 from magazinerr.matcher import is_confident_match, issue_already_owned
 from magazinerr.models import Grab, GrabStatus, Publication
-from magazinerr.parser import parse
-from magazinerr.prowlarr_client import ProwlarrClient
+from magazinerr.parser import ParsedRelease, identifier_sort_key, is_identifier_newer, parse
+from magazinerr.prowlarr_client import ProwlarrClient, Release
 from magazinerr.qbittorrent_client import QBittorrentClient
 
 logger = logging.getLogger(__name__)
@@ -43,6 +51,29 @@ def _already_in_flight(db: Session, publication_id: int, identifier: str) -> boo
     )
 
 
+def _eligible_candidates(
+    db: Session, publication: Publication, candidates: list[Release]
+) -> list[tuple[Release, ParsedRelease]]:
+    eligible = []
+    min_seeders = publication.min_seeders or settings.default_min_seeders
+    for release in candidates:
+        parsed = parse(release.title)
+        if parsed.identifier is None:
+            continue  # can't safely dedupe (or order) without an identifier
+        if not is_confident_match(parsed, publication.title, publication.aliases):
+            continue
+        if issue_already_owned(db, publication.id, parsed.identifier):
+            continue
+        if _already_in_flight(db, publication.id, parsed.identifier):
+            continue
+        if (release.seeders or 0) < min_seeders:
+            continue
+        if not is_identifier_newer(parsed.identifier, publication.baseline_identifier):
+            continue
+        eligible.append((release, parsed))
+    return eligible
+
+
 def run_search_job(
     db: Session,
     prowlarr: ProwlarrClient,
@@ -65,20 +96,19 @@ def run_search_job(
                     seen_guids.add(release.guid)
                 candidates.append(release)
 
-        for release in candidates:
-            parsed = parse(release.title)
-            if parsed.identifier is None:
-                continue  # can't safely dedupe without an identifier
-            if not is_confident_match(parsed, publication.title, publication.aliases):
-                continue
-            if issue_already_owned(db, publication.id, parsed.identifier):
-                continue
-            if _already_in_flight(db, publication.id, parsed.identifier):
-                continue
-            min_seeders = publication.min_seeders or settings.default_min_seeders
-            if (release.seeders or 0) < min_seeders:
-                continue
+        eligible = _eligible_candidates(db, publication, candidates)
 
+        if publication.baseline_identifier is None:
+            # Cold start: take only the N most recent, then set a permanent
+            # floor so the rest of the back-catalog is never reconsidered.
+            eligible.sort(key=lambda pair: identifier_sort_key(pair[1].identifier), reverse=True)
+            to_grab = eligible[: publication.grab_last_n]
+            if to_grab:
+                publication.baseline_identifier = to_grab[-1][1].identifier
+        else:
+            to_grab = eligible
+
+        for release, parsed in to_grab:
             try:
                 qbt.add_torrent(release.download_url, category=settings.qbittorrent_category)
             except Exception:

@@ -64,13 +64,30 @@ API docs are at `http://localhost:8000/docs`.
 
 - `POST /publications` — add a publication to watch: `title`, `target_dir`, and optionally
   `type` (`magazine`/`newspaper`), `aliases` (alternate names uploaders use), `format_preference`
-  (`pdf`/`cbr`/`any`), `min_seeders`, `monitored`.
-- `GET /publications`, `GET/PATCH/DELETE /publications/{id}`
+  (`pdf`/`cbr`/`any`), `min_seeders`, `monitored`, `grab_last_n` (see Cold start below).
+- `GET /publications`, `GET/PATCH/DELETE /publications/{id}` — `PATCH` also accepts
+  `baseline_identifier` to manually set/reset the cold-start floor (see below).
 - `POST /publications/{id}/search-now` — trigger an immediate search (useful for testing)
 - `GET /grabs` — history of what's been grabbed and its status
 - `GET /review` — items that couldn't be confidently auto-matched
 - `POST /review/{id}/resolve` — manually assign a review item to a publication + issue identifier,
   which imports it into that publication's library folder
+- `GET /search/preview?query=...` — read-only: hits Prowlarr and shows what the parser/matcher
+  would see for a query, without grabbing anything or writing to the database. Useful for
+  checking indexer coverage and parse quality for a title before adding it as a publication.
+
+### Cold start (avoiding a back-catalog dump on day one)
+
+An indexer can return a publication's entire available history — a single "le monde"
+or "ouest france" search can turn up 80+ historical issues. Since a freshly-added
+publication owns nothing yet, every one of them would otherwise look "new" and get
+grabbed. Instead, the very first search for a publication only grabs its `grab_last_n`
+most recent eligible releases (default `1`), then permanently records a
+`baseline_identifier` floor — nothing at or below it is ever grabbed again, on this
+or any future search, even if an old release resurfaces (e.g. a reseed). You can see
+and manually override that floor via `PATCH /publications/{id}` — set
+`baseline_identifier` to a specific value to say "only monitor issues after this one,"
+or clear it to `null` to force a cold-start re-evaluation.
 
 ## Testing
 
@@ -87,8 +104,9 @@ Prowlarr/qBittorrent instance.
 
 - No quality-profile "upgrade" logic — first release that matches and meets `min_seeders` wins.
 - Single download client (qBittorrent) and a single indexer path (Prowlarr's search API).
-- Newspaper support is best-effort and unproven — real-world torrent availability and naming
-  consistency for newspapers is much weaker than for magazines.
+- A release spanning two calendar days (a combined weekend edition, e.g. "Du 9 10 Mai
+  2026") is assigned the identifier of the later day only — there's no clean single-identifier
+  representation for a two-day span. Hasn't caused a real collision in testing so far.
 - No frontend UI yet — operate the review queue via the API/docs.
 - Matching is heuristic (regex + fuzzy title score), not lookup-based — expect some false
   positives/negatives; that's what the review queue is for.

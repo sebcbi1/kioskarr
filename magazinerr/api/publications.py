@@ -20,6 +20,7 @@ class PublicationCreate(BaseModel):
     min_seeders: int = 1
     target_dir: str
     monitored: bool = True
+    grab_last_n: int = 1
 
 
 class PublicationUpdate(BaseModel):
@@ -29,6 +30,11 @@ class PublicationUpdate(BaseModel):
     min_seeders: int | None = None
     target_dir: str | None = None
     monitored: bool | None = None
+    grab_last_n: int | None = None
+    # Manual override/reset of the cold-start floor — e.g. to say "only monitor
+    # issues after this one" without waiting for the next search cycle, or to
+    # clear it back to None to force a cold-start re-evaluation.
+    baseline_identifier: str | None = None
 
 
 class PublicationOut(BaseModel):
@@ -40,6 +46,8 @@ class PublicationOut(BaseModel):
     min_seeders: int
     target_dir: str
     monitored: bool
+    grab_last_n: int
+    baseline_identifier: str | None
 
     model_config = {"from_attributes": True}
 

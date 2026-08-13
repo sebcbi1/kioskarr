@@ -42,6 +42,14 @@ class Publication(Base):
     target_dir: Mapped[str] = mapped_column(String, nullable=False)
     monitored: Mapped[bool] = mapped_column(default=True)
 
+    # How many issues to grab on the very first search (cold start), instead of
+    # every historical issue the indexer happens to return.
+    grab_last_n: Mapped[int] = mapped_column(Integer, default=1)
+    # Permanent floor set once cold start resolves: nothing at or below this
+    # identifier is ever grabbed again, even if it resurfaces in later searches.
+    # None means "not yet initialized" — the next search cycle will cold-start.
+    baseline_identifier: Mapped[str | None] = mapped_column(String, nullable=True)
+
     issues: Mapped[list["Issue"]] = relationship(back_populates="publication")
     grabs: Mapped[list["Grab"]] = relationship(back_populates="publication")
 

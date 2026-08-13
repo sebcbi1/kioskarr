@@ -177,3 +177,19 @@ def parse(release_title: str) -> ParsedRelease:
         return ParsedRelease(release_title, normalized, title_guess or normalized, identifier, "issue", format_ext)
 
     return ParsedRelease(release_title, normalized, normalized, None, None, format_ext)
+
+
+def identifier_sort_key(identifier: str) -> tuple:
+    """Comparable key for "is this issue newer than that one" — plain string
+    comparison breaks for issue numbers ("issue-10" < "issue-9" lexicographically),
+    though it works fine as-is for our zero-padded date identifiers.
+    """
+    if identifier.startswith("issue-"):
+        return (1, int(identifier.removeprefix("issue-")))
+    return (0, identifier)
+
+
+def is_identifier_newer(identifier: str, baseline: str | None) -> bool:
+    if baseline is None:
+        return True
+    return identifier_sort_key(identifier) > identifier_sort_key(baseline)
