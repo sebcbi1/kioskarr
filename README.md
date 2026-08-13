@@ -115,6 +115,13 @@ grab is immediately flagged for review instead of being left stuck at "downloadi
 forever with nothing to import. Resolve it by finding the existing file in qBittorrent
 and passing its path as `file_path` to `POST /review/{id}/resolve`.
 
+**Multi-file torrents**: a torrent isn't assumed to contain exactly one issue. If more
+than one file looks substantial (bigger than ~1MB and at least 10% of the largest file's
+size — covers/NFOs don't count, but a real bundled second issue does), it's flagged for
+review rather than silently picking the largest and discarding the rest. This is a real
+release shape, not hypothetical: a genuine "annual archive" release bundling 12 separate
+monthly issues plus an NFO in one torrent was found and confirmed during testing.
+
 ## Testing
 
 ```bash

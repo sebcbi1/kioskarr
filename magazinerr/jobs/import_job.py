@@ -17,15 +17,35 @@ from magazinerr.qbittorrent_client import QBittorrentClient
 logger = logging.getLogger(__name__)
 
 
-def _pick_main_file(files: list[dict], format_preference: str) -> dict | None:
+_SUBSTANTIAL_MIN_BYTES = 1_000_000  # covers/NFOs are typically KB-sized, issues are MBs
+_SUBSTANTIAL_MIN_FRACTION = 0.1  # of the largest candidate's size
+
+
+def _classify_files(
+    files: list[dict], format_preference: str
+) -> tuple[dict | None, list[dict]]:
+    """Pick the file that represents the issue, and flag anything else that's
+    substantial enough to plausibly be a *second* issue rather than junk
+    (a cover image, NFO, sample). A torrent can legitimately bundle several
+    issues at once (a real "annual archive" release with one file per month
+    was confirmed live) — silently picking the largest and discarding the
+    rest would lose the others without any sign that happened.
+    """
     if not files:
-        return None
+        return None, []
     candidates = files
     if format_preference != "any":
         preferred = [f for f in files if f.get("name", "").lower().endswith(f".{format_preference}")]
         if preferred:
             candidates = preferred
-    return max(candidates, key=lambda f: f.get("size", 0))
+    if not candidates:
+        return None, []
+
+    ranked = sorted(candidates, key=lambda f: f.get("size", 0), reverse=True)
+    chosen = ranked[0]
+    threshold = max(_SUBSTANTIAL_MIN_BYTES, _SUBSTANTIAL_MIN_FRACTION * (chosen.get("size", 0) or 0))
+    other_substantial = [f for f in ranked[1:] if f.get("size", 0) >= threshold]
+    return chosen, other_substantial
 
 
 def _import_file(source_path: Path, target_dir: Path, identifier: str, title: str) -> Path:
@@ -118,9 +138,21 @@ def run_import_job(db: Session, qbt: QBittorrentClient) -> dict:
             logger.exception("Failed to list files for grab %s", grab.id)
             continue
 
-        main_file = _pick_main_file(files, publication.format_preference.value)
+        main_file, other_substantial = _classify_files(files, publication.format_preference.value)
         if main_file is None:
             _flag_for_review(db, grab, torrent.get("content_path", ""), "no files found in torrent")
+            flagged_for_review.append(grab.id)
+            continue
+
+        if other_substantial:
+            names = ", ".join(f["name"] for f in [main_file, *other_substantial])
+            _flag_for_review(
+                db,
+                grab,
+                torrent.get("content_path", ""),
+                f"torrent contains multiple substantial files, can't tell which is the "
+                f"issue (or if this is a multi-issue archive): {names}",
+            )
             flagged_for_review.append(grab.id)
             continue
 
