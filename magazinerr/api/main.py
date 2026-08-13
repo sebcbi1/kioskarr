@@ -1,0 +1,26 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
+from magazinerr.api import grabs, publications, review
+from magazinerr.db import init_db
+from magazinerr.scheduler import start_scheduler, stop_scheduler
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    start_scheduler()
+    yield
+    stop_scheduler()
+
+
+app = FastAPI(title="Magazinerr", lifespan=lifespan)
+app.include_router(publications.router)
+app.include_router(review.router)
+app.include_router(grabs.router)
+
+
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok"}
