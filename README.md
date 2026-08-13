@@ -23,7 +23,7 @@ expects two other services already running, the same as any Servarr app:
 
 ```bash
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate       # fish shell: source .venv/bin/activate.fish
 pip install -e ".[dev]"
 ```
 
@@ -44,8 +44,17 @@ Configure via environment variables (or a `.env` file), all prefixed `MAGAZINERR
 
 ## Run
 
+With the venv activated:
+
 ```bash
 uvicorn magazinerr.api.main:app --reload
+```
+
+If `uvicorn` isn't found, the venv likely isn't activated in your current shell —
+either activate it first (see Setup above) or call it directly without activating:
+
+```bash
+.venv/bin/uvicorn magazinerr.api.main:app --reload
 ```
 
 This starts the API and the background scheduler (search + import jobs). Interactive

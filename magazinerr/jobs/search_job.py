@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 BOOKS_MAGAZINES_CATEGORY = 7010
 
 
-def _search_with_fallback(prowlarr: ProwlarrClient, query: str) -> list:
+def search_with_fallback(prowlarr: ProwlarrClient, query: str) -> list:
     releases = prowlarr.search(query, categories=[BOOKS_MAGAZINES_CATEGORY])
     if releases:
         return releases
@@ -58,7 +58,7 @@ def run_search_job(
         seen_guids: set[str] = set()
         candidates = []
         for term in publication.all_search_terms():
-            for release in _search_with_fallback(prowlarr, term):
+            for release in search_with_fallback(prowlarr, term):
                 if release.guid and release.guid in seen_guids:
                     continue
                 if release.guid:
