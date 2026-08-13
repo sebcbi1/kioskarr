@@ -21,27 +21,37 @@ class FakeProwlarr:
     good enough to exercise run_search_job's matching/dedup/baseline logic
     without a live Prowlarr instance."""
 
-    def __init__(self, releases):
+    def __init__(self, releases, indexer_priorities=None):
         self.releases = releases
+        self.indexer_priorities = indexer_priorities or {}
 
     def search(self, query, categories=None, indexer_ids=None):
         return self.releases
 
+    def get_indexer_priorities(self):
+        return self.indexer_priorities
+
 
 class FakeQbt:
-    def __init__(self, simulate_duplicate=False, files_by_hash=None):
+    def __init__(self, simulate_duplicate=False, files_by_hash=None, existing_hashes=None):
         self.added = []
         # A duplicate of a torrent qBittorrent already had: add "succeeds" but
         # no new hash ever appears, same as the real add_torrent's contract.
         self.simulate_duplicate = simulate_duplicate
         self.files_by_hash = files_by_hash or {}
         self.set_priorities_calls = []
+        # Torrents already present (any category) before this run — used to
+        # detect a known-duplicate release by info_hash upfront.
+        self.existing_hashes = set(existing_hashes or [])
 
     def add_torrent(self, url, category):
         self.added.append((url, category))
         if self.simulate_duplicate:
             return None
         return f"hash-{len(self.added)}"
+
+    def list_torrents(self, category=None):
+        return [{"hash": h} for h in self.existing_hashes]
 
     def get_files(self, torrent_hash):
         # Default: a single dummy file — len(files) <= 1 means the caller
@@ -53,16 +63,17 @@ class FakeQbt:
         self.set_priorities_calls.append((torrent_hash, file_indices, priority))
 
 
-def _release(title, guid, seeders=10):
+def _release(title, guid, seeders=10, indexer_id=1, info_hash=None):
     return Release(
         title=title,
         guid=guid,
         download_url=f"http://example/{guid}",
-        indexer_id=1,
+        indexer_id=indexer_id,
         indexer_name="TestIndexer",
         seeders=seeders,
         size=1000,
         protocol="torrent",
+        info_hash=info_hash,
     )
 
 
@@ -183,6 +194,58 @@ def test_duplicate_grab_is_not_retried_on_the_next_cycle(db_session):
 
     assert grabs == []
     assert db_session.query(Grab).count() == 1
+
+
+def test_picks_higher_priority_indexer_when_same_issue_found_on_two_indexers(db_session):
+    # Prowlarr aggregates multiple indexers, so the same issue can come back
+    # as two distinct candidates (e.g. both C411 and TR4KER have an upload of
+    # the same date) — must grab exactly one, not both.
+    pub = _publication(db_session)
+    same_day = [
+        _release("Ouest.France.Du.22.Juin.2026.FR.[PDF]-G11", "guid-low-priority", indexer_id=1, seeders=50),
+        _release("Ouest.France.Du.22.Juin.2026.FR.[PDF]-G11", "guid-high-priority", indexer_id=2, seeders=5),
+    ]
+    prowlarr = FakeProwlarr(same_day, indexer_priorities={1: 25, 2: 10})  # lower number = preferred
+    qbt = FakeQbt()
+
+    grabs = run_search_job(db_session, prowlarr, qbt, publications=[pub])
+
+    assert len(grabs) == 1
+    assert grabs[0].release_guid == "guid-high-priority"  # indexer 2 has priority 10 < 25
+
+
+def test_picks_more_seeders_when_indexer_priority_ties(db_session):
+    pub = _publication(db_session)
+    same_day = [
+        _release("Ouest.France.Du.22.Juin.2026.FR.[PDF]-G11", "guid-few-seeders", indexer_id=1, seeders=2),
+        _release("Ouest.France.Du.22.Juin.2026.FR.[PDF]-G11", "guid-many-seeders", indexer_id=1, seeders=50),
+    ]
+    prowlarr = FakeProwlarr(same_day, indexer_priorities={1: 25})
+    qbt = FakeQbt()
+
+    grabs = run_search_job(db_session, prowlarr, qbt, publications=[pub])
+
+    assert len(grabs) == 1
+    assert grabs[0].release_guid == "guid-many-seeders"
+
+
+def test_known_duplicate_via_info_hash_flagged_without_calling_add_torrent(db_session):
+    # Knowing the hash upfront (Prowlarr's own infoHash field) means a
+    # duplicate can be detected before ever calling add_torrent, instead of
+    # only finding out after the fact from a missing hash.
+    pub = _publication(db_session)
+    release = _release(
+        "Ouest.France.Du.22.Juin.2026.FR.[PDF]-G11", "guid-22", info_hash="deadbeef1234"
+    )
+    prowlarr = FakeProwlarr([release])
+    qbt = FakeQbt(existing_hashes={"deadbeef1234"})
+
+    grabs = run_search_job(db_session, prowlarr, qbt, publications=[pub])
+
+    assert len(grabs) == 1
+    assert grabs[0].status == GrabStatus.needs_review
+    assert grabs[0].torrent_hash is None
+    assert qbt.added == []  # never even attempted — already known to be a duplicate
 
 
 def test_restricts_download_when_torrent_bundles_an_extra_file(db_session):

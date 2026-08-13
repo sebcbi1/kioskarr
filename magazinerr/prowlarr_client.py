@@ -20,6 +20,8 @@ class Release:
     seeders: int | None
     size: int | None
     protocol: str | None
+    info_hash: str | None = None
+    publish_date: str | None = None
 
     @classmethod
     def from_json(cls, item: dict) -> "Release":
@@ -32,6 +34,8 @@ class Release:
             seeders=item.get("seeders"),
             size=item.get("size"),
             protocol=item.get("protocol"),
+            info_hash=item.get("infoHash"),
+            publish_date=item.get("publishDate"),
         )
 
 
@@ -64,3 +68,13 @@ class ProwlarrClient:
         )
         response.raise_for_status()
         return [Release.from_json(item) for item in response.json()]
+
+    def get_indexer_priorities(self) -> dict[int, int]:
+        """Lower number = preferred, per Prowlarr's own convention — used to
+        rank candidates from different indexers the same way the user already
+        ranked them in Prowlarr itself, rather than picking arbitrarily."""
+        response = requests.get(
+            f"{self.base_url}/api/v1/indexer", headers=self._headers(), timeout=self.timeout
+        )
+        response.raise_for_status()
+        return {idx["id"]: idx.get("priority", 25) for idx in response.json()}

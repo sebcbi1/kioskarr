@@ -112,6 +112,32 @@ def _eligible_candidates(
     return eligible
 
 
+def _best_per_identifier(
+    eligible: list[tuple[Release, ParsedRelease]], indexer_priorities: dict[int, int]
+) -> list[tuple[Release, ParsedRelease]]:
+    """Prowlarr aggregates multiple indexers, so the same issue can show up
+    as several distinct candidates (e.g. both C411 and TR4KER have an upload
+    of the same date) — pick exactly one per identifier rather than grabbing
+    every matching candidate. Ranked by indexer priority first (the trust
+    order already configured in Prowlarr itself, lower number preferred),
+    then seeders as a tiebreaker (a healthier swarm downloads more reliably).
+    """
+    by_identifier: dict[str, list[tuple[Release, ParsedRelease]]] = {}
+    for release, parsed in eligible:
+        by_identifier.setdefault(parsed.identifier, []).append((release, parsed))
+
+    best = []
+    for candidates in by_identifier.values():
+        candidates.sort(
+            key=lambda pair: (
+                indexer_priorities.get(pair[0].indexer_id, 25),
+                -(pair[0].seeders or 0),
+            )
+        )
+        best.append(candidates[0])
+    return best
+
+
 def run_search_job(
     db: Session,
     prowlarr: ProwlarrClient,
@@ -122,6 +148,19 @@ def run_search_job(
         db.query(Publication).filter(Publication.monitored.is_(True)).all()
     )
     new_grabs: list[Grab] = []
+
+    try:
+        indexer_priorities = prowlarr.get_indexer_priorities()
+    except Exception:
+        logger.exception("Failed to fetch indexer priorities — treating all indexers as equal")
+        indexer_priorities = {}
+
+    # All categories, not just ours — a torrent can already exist elsewhere
+    # (e.g. under "books") from before magazinerr ever ran. Knowing the hash
+    # upfront (from Prowlarr's own infoHash field) means we can tell it's a
+    # duplicate before even calling add_torrent, instead of guessing after
+    # the fact from a missing hash.
+    existing_hashes = {t["hash"] for t in qbt.list_torrents()}
 
     for publication in targets:
         seen_guids: set[str] = set()
@@ -135,6 +174,7 @@ def run_search_job(
                 candidates.append(release)
 
         eligible = _eligible_candidates(db, publication, candidates)
+        eligible = _best_per_identifier(eligible, indexer_priorities)
 
         if publication.baseline_identifier is None:
             # Cold start: take only the N most recent, then set a permanent
@@ -147,18 +187,36 @@ def run_search_job(
             to_grab = eligible
 
         for release, parsed in to_grab:
-            try:
-                torrent_hash = qbt.add_torrent(release.download_url, category=settings.qbittorrent_category)
-            except Exception:
-                logger.exception(
-                    "Failed to add torrent for %s: %s", publication.title, release.title
-                )
-                continue
+            known_duplicate = bool(release.info_hash) and release.info_hash in existing_hashes
 
-            # No new hash appeared after a fair wait (see QBittorrentClient.add_torrent) —
-            # almost certainly a duplicate of a torrent qBittorrent already had elsewhere.
-            # Flag it now rather than leaving a "downloading" Grab that can never be
-            # matched back to a torrent and would sit stuck forever.
+            if known_duplicate:
+                # Already know this exact torrent exists somewhere in
+                # qBittorrent — no point adding it (a no-op anyway) or
+                # waiting on add_torrent's hash-detection polling.
+                torrent_hash = None
+            else:
+                try:
+                    returned_hash = qbt.add_torrent(
+                        release.download_url, category=settings.qbittorrent_category
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to add torrent for %s: %s", publication.title, release.title
+                    )
+                    continue
+                # Prefer Prowlarr's own infoHash — known immediately, no polling
+                # needed. Falls back to add_torrent's polling-based detection
+                # for indexers that don't populate infoHash.
+                torrent_hash = release.info_hash or returned_hash
+                if torrent_hash:
+                    existing_hashes.add(torrent_hash)
+
+            # No hash to work with — either a known duplicate, or (same as
+            # before) no new hash appeared after add_torrent's polling, most
+            # likely because this is a duplicate qBittorrent didn't tell us
+            # about directly. Flag it now rather than leaving a "downloading"
+            # Grab that can never be matched back to a torrent and would sit
+            # stuck forever.
             status = GrabStatus.downloading if torrent_hash else GrabStatus.needs_review
 
             if torrent_hash:
@@ -177,19 +235,28 @@ def run_search_job(
             db.flush()  # assign grab.id for the ReviewItem FK below
 
             if torrent_hash is None:
-                logger.warning(
-                    "Added %s for %s but no new torrent hash appeared — flagged for review.",
-                    release.title,
-                    publication.title,
-                )
+                if known_duplicate:
+                    logger.info(
+                        "%s for %s is already in qBittorrent elsewhere (hash %s) — "
+                        "flagged for review instead of re-adding.",
+                        release.title,
+                        publication.title,
+                        release.info_hash,
+                    )
+                else:
+                    logger.warning(
+                        "Added %s for %s but no new torrent hash appeared — flagged for review.",
+                        release.title,
+                        publication.title,
+                    )
                 db.add(
                     ReviewItem(
                         grab_id=grab.id,
                         file_path="",
                         reason=(
-                            "Added to qBittorrent but no new torrent hash appeared — likely "
-                            "a duplicate of a torrent already present elsewhere. Find the "
-                            "existing file and resolve with its path."
+                            "This torrent is already present elsewhere in qBittorrent — likely "
+                            "a duplicate of a torrent already present. Find the existing file "
+                            "and resolve with its path."
                         ),
                         candidate_publication_id=publication.id,
                     )

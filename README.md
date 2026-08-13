@@ -99,6 +99,22 @@ and manually override that floor via `PATCH /publications/{id}` — set
 `baseline_identifier` to a specific value to say "only monitor issues after this one,"
 or clear it to `null` to force a cold-start re-evaluation.
 
+### Choosing among multiple candidates
+
+Prowlarr aggregates multiple indexers, so the same issue can come back as more than
+one distinct candidate — confirmed live, the same date from two different trackers.
+Rather than grabbing every matching candidate (which would download the same issue
+twice), exactly one is picked per identifier: first by indexer priority (the trust
+order already configured in Prowlarr itself — lower priority number wins), then by
+seeders as a tiebreaker (a healthier swarm downloads more reliably). Prowlarr's search
+API doesn't sort results itself (confirmed empirically — results come back in
+whatever order the indexer returns, not by date), so this ranking is done client-side.
+
+Prowlarr's search response also includes each release's info-hash directly — captured
+and used to check for a duplicate *before* even asking qBittorrent to add it (rather
+than only finding out afterward from a missing hash), and to skip the polling entirely
+for indexers that provide it.
+
 ### Import (making the downloaded file reachable)
 
 The import job reads the completed file directly off disk — `torrent["save_path"]`
@@ -111,11 +127,12 @@ import will use it instead of trusting the API's `save_path` directly. Hardlinki
 (no extra disk space, keeps seeding) only succeeds if `target_dir` is on the *same*
 filesystem as that downloads path; otherwise it falls back to a plain copy automatically.
 
-**Duplicate torrents**: if the release qBittorrent was asked to add turns out to already
-be a torrent it has elsewhere (matched by info-hash), no *new* torrent is created — the
-grab is immediately flagged for review instead of being left stuck at "downloading"
-forever with nothing to import. Resolve it by finding the existing file in qBittorrent
-and passing its path as `file_path` to `POST /review/{id}/resolve`.
+**Duplicate torrents**: if a release turns out to already be a torrent qBittorrent has
+elsewhere (matched by info-hash — known upfront from Prowlarr's response when available,
+otherwise detected after the fact from no new hash appearing), it's flagged for review
+immediately instead of being left stuck at "downloading" forever with nothing to import.
+Resolve it by finding the existing file in qBittorrent and passing its path as
+`file_path` to `POST /review/{id}/resolve`.
 
 **Multi-file torrents**: a torrent isn't assumed to contain exactly one issue, and the
 right file isn't found by size. Only recognized magazine/book file types (`pdf`, `epub`,
