@@ -37,6 +37,7 @@ Configure via environment variables (or a `.env` file), all prefixed `MAGAZINERR
 | `MAGAZINERR_QBITTORRENT_URL` | `http://localhost:8080` | qBittorrent WebUI base URL |
 | `MAGAZINERR_QBITTORRENT_USERNAME` | `admin` | qBittorrent WebUI username |
 | `MAGAZINERR_QBITTORRENT_PASSWORD` | *(required)* | qBittorrent WebUI password |
+| `MAGAZINERR_QBITTORRENT_DOWNLOADS_LOCAL_PATH` | *(unset)* | Local filesystem path where qBittorrent's own `save_path` is actually reachable from this process — e.g. a mount of a remote download directory. Required for import to work unless magazinerr runs on the same host/filesystem as qBittorrent; see Import below. |
 | `MAGAZINERR_LIBRARY_ROOT` | `./library` | Default library root (publications also set their own `target_dir`) |
 | `MAGAZINERR_SEARCH_INTERVAL_HOURS` | `4` | How often to search for new issues |
 | `MAGAZINERR_IMPORT_INTERVAL_MINUTES` | `5` | How often to check for completed downloads |
@@ -58,7 +59,9 @@ either activate it first (see Setup above) or call it directly without activatin
 ```
 
 This starts the API and the background scheduler (search + import jobs). Interactive
-API docs are at `http://localhost:8000/docs`.
+API docs are at `http://localhost:8000/docs`. The app fails fast at startup with a
+clear error if `MAGAZINERR_PROWLARR_API_KEY` or `MAGAZINERR_QBITTORRENT_PASSWORD` is
+missing, rather than booting fine and failing silently later in the background scheduler.
 
 ## API
 
@@ -68,6 +71,8 @@ API docs are at `http://localhost:8000/docs`.
 - `GET /publications`, `GET/PATCH/DELETE /publications/{id}` — `PATCH` also accepts
   `baseline_identifier` to manually set/reset the cold-start floor (see below).
 - `POST /publications/{id}/search-now` — trigger an immediate search (useful for testing)
+- `POST /jobs/import-now` — trigger the import job immediately instead of waiting for the
+  next scheduled tick (useful for testing)
 - `GET /grabs` — history of what's been grabbed and its status
 - `GET /review` — items that couldn't be confidently auto-matched
 - `POST /review/{id}/resolve` — manually assign a review item to a publication + issue identifier,
@@ -88,6 +93,18 @@ or any future search, even if an old release resurfaces (e.g. a reseed). You can
 and manually override that floor via `PATCH /publications/{id}` — set
 `baseline_identifier` to a specific value to say "only monitor issues after this one,"
 or clear it to `null` to force a cold-start re-evaluation.
+
+### Import (making the downloaded file reachable)
+
+The import job reads the completed file directly off disk — `torrent["save_path"]`
+(as qBittorrent's API reports it) plus the file name, then hardlinks or copies it into
+the publication's `target_dir`. That only works if this process can actually see
+qBittorrent's download directory on its own filesystem. If qBittorrent runs elsewhere
+(a different host, a NAS, etc.) and you've mounted its download directory locally at a
+different path, set `MAGAZINERR_QBITTORRENT_DOWNLOADS_LOCAL_PATH` to that local path —
+import will use it instead of trusting the API's `save_path` directly. Hardlinking
+(no extra disk space, keeps seeding) only succeeds if `target_dir` is on the *same*
+filesystem as that downloads path; otherwise it falls back to a plain copy automatically.
 
 ## Testing
 
