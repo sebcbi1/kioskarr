@@ -3,7 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from magazinerr.db import Base
-from magazinerr.jobs.import_job import _classify_files, run_import_job
+from magazinerr.jobs.import_job import _select_issue_file, run_import_job
 from magazinerr.models import FormatPreference, Grab, GrabStatus, Publication, PublicationType, ReviewItem
 
 
@@ -15,10 +15,12 @@ def db_session():
         yield session
 
 
+PUB_TITLE = "Le Monde Diplomatique"
+
 # Real file listing pulled directly from the actual "Le Monde Diplomatique 2013
 # INTEGRALE" torrent (fetched via Prowlarr's download proxy and bencode-parsed
 # by hand) — a genuine annual-archive release bundling 12 separate monthly
-# issues plus an NFO in one torrent. The old _pick_main_file would have picked
+# issues plus an NFO in one torrent. Picking by size alone would have picked
 # only the largest (March) and silently discarded the other 11.
 REAL_ARCHIVE_FILES = [
     {"name": "LE MONDE DIPLOMATIQUE N°708 - Mars 2013.pdf", "size": 9871152},
@@ -42,37 +44,69 @@ REAL_SINGLE_ISSUE_FILES = [
 ]
 
 
-def test_classify_files_flags_real_multi_issue_archive():
-    chosen, others = _classify_files(REAL_ARCHIVE_FILES, "pdf")
+def test_flags_real_multi_issue_archive_by_content_not_size():
+    chosen, others = _select_issue_file(REAL_ARCHIVE_FILES, "any", PUB_TITLE, [])
     assert chosen["name"] == "LE MONDE DIPLOMATIQUE N°708 - Mars 2013.pdf"
-    assert len(others) == 11  # every other month — the NFO correctly excluded as junk
+    assert len(others) == 11  # every other month — the NFO correctly excluded, not just by size
     assert all("nfo" not in f["name"].lower() for f in others)
 
 
-def test_classify_files_no_false_positive_on_real_single_issue():
-    chosen, others = _classify_files(REAL_SINGLE_ISSUE_FILES, "pdf")
+def test_no_false_positive_on_real_single_issue():
+    chosen, others = _select_issue_file(REAL_SINGLE_ISSUE_FILES, "pdf", PUB_TITLE, [])
     assert chosen["name"] == REAL_SINGLE_ISSUE_FILES[0]["name"]
     assert others == []
 
 
-def test_classify_files_ignores_small_junk_files():
+def test_ignores_junk_files_by_extension_even_when_large():
+    # A size-only heuristic would have flagged this as ambiguous (cover.jpg is
+    # bigger than the 10%-of-largest threshold) — extension filtering means a
+    # non-magazine file type is never even a candidate, regardless of size.
     files = [
-        {"name": "issue.pdf", "size": 20_000_000},
-        {"name": "cover.jpg", "size": 200_000},
+        {"name": "Wired USA - August 2026.pdf", "size": 20_000_000},
+        {"name": "cover.jpg", "size": 15_000_000},
         {"name": "info.nfo", "size": 800},
     ]
-    chosen, others = _classify_files(files, "any")
-    assert chosen["name"] == "issue.pdf"
+    chosen, others = _select_issue_file(files, "any", "Wired USA", [])
+    assert chosen["name"] == "Wired USA - August 2026.pdf"
     assert others == []
 
 
-def test_classify_files_respects_format_preference():
+def test_respects_format_preference():
     files = [
-        {"name": "issue.epub", "size": 5_000_000},
-        {"name": "issue.pdf", "size": 20_000_000},
+        {"name": "Wired USA - August 2026.epub", "size": 5_000_000},
+        {"name": "Wired USA - August 2026.pdf", "size": 20_000_000},
     ]
-    chosen, others = _classify_files(files, "epub")
-    assert chosen["name"] == "issue.epub"
+    chosen, others = _select_issue_file(files, "epub", "Wired USA", [])
+    assert chosen["name"] == "Wired USA - August 2026.epub"
+    assert others == []
+
+
+def test_same_issue_in_two_formats_is_not_treated_as_ambiguous():
+    # Same identifier either way — no information would be lost by picking
+    # one, so this shouldn't be flagged the way genuinely distinct issues are.
+    files = [
+        {"name": "Wired USA - August 2026.epub", "size": 5_000_000},
+        {"name": "Wired USA - August 2026.pdf", "size": 20_000_000},
+    ]
+    chosen, others = _select_issue_file(files, "any", "Wired USA", [])
+    assert chosen["name"] == "Wired USA - August 2026.pdf"  # larger of the two
+    assert others == []
+
+
+def test_falls_back_to_largest_recognized_file_when_nothing_matches_by_name():
+    files = [
+        {"name": "scan001.pdf", "size": 20_000_000},
+        {"name": "scan002.pdf", "size": 500_000},
+    ]
+    chosen, others = _select_issue_file(files, "any", "Wired USA", [])
+    assert chosen["name"] == "scan001.pdf"
+    assert others == []
+
+
+def test_returns_none_when_no_recognized_file_types_present():
+    files = [{"name": "cover.jpg", "size": 5_000_000}, {"name": "info.nfo", "size": 800}]
+    chosen, others = _select_issue_file(files, "any", "Wired USA", [])
+    assert chosen is None
     assert others == []
 
 
@@ -90,7 +124,7 @@ class FakeQbt:
 
 def test_run_import_job_flags_multi_issue_archive_for_review_instead_of_importing_one(db_session):
     pub = Publication(
-        title="Le Monde Diplomatique",
+        title=PUB_TITLE,
         type=PublicationType.magazine,
         aliases=[],
         format_preference=FormatPreference.pdf,

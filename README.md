@@ -115,12 +115,16 @@ grab is immediately flagged for review instead of being left stuck at "downloadi
 forever with nothing to import. Resolve it by finding the existing file in qBittorrent
 and passing its path as `file_path` to `POST /review/{id}/resolve`.
 
-**Multi-file torrents**: a torrent isn't assumed to contain exactly one issue. If more
-than one file looks substantial (bigger than ~1MB and at least 10% of the largest file's
-size — covers/NFOs don't count, but a real bundled second issue does), it's flagged for
-review rather than silently picking the largest and discarding the rest. This is a real
-release shape, not hypothetical: a genuine "annual archive" release bundling 12 separate
-monthly issues plus an NFO in one torrent was found and confirmed during testing.
+**Multi-file torrents**: a torrent isn't assumed to contain exactly one issue, and the
+right file isn't found by size. Only recognized magazine/book file types (`pdf`, `epub`,
+`cbr`, `cbz`, `mobi`) are ever considered — a cover image or NFO is never a candidate
+regardless of size — and each candidate is parsed and confidence-matched by name against
+the publication, the same way search does. If exactly one file (or several copies of the
+same issue in different formats) matches, it's imported normally. If files with *different*
+identifiers both match, that's a real release shape, not hypothetical: a genuine "annual
+archive" torrent bundling 12 separate monthly issues was found and confirmed during
+testing — it's flagged for review rather than silently importing one and discarding
+the rest.
 
 ## Testing
 

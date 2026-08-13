@@ -11,41 +11,63 @@ from sqlalchemy.orm import Session
 from magazinerr.config import settings
 from magazinerr.matcher import is_confident_match
 from magazinerr.models import Grab, GrabStatus, Issue, Publication, ReviewItem
-from magazinerr.parser import parse
+from magazinerr.parser import FORMAT_EXTENSIONS, parse
 from magazinerr.qbittorrent_client import QBittorrentClient
 
 logger = logging.getLogger(__name__)
 
 
-_SUBSTANTIAL_MIN_BYTES = 1_000_000  # covers/NFOs are typically KB-sized, issues are MBs
-_SUBSTANTIAL_MIN_FRACTION = 0.1  # of the largest candidate's size
+def _file_extension(name: str) -> str:
+    return Path(name).suffix.lstrip(".").lower()
 
 
-def _classify_files(
-    files: list[dict], format_preference: str
+def _select_issue_file(
+    files: list[dict], format_preference: str, publication_title: str, aliases: list[str]
 ) -> tuple[dict | None, list[dict]]:
-    """Pick the file that represents the issue, and flag anything else that's
-    substantial enough to plausibly be a *second* issue rather than junk
-    (a cover image, NFO, sample). A torrent can legitimately bundle several
-    issues at once (a real "annual archive" release with one file per month
-    was confirmed live) — silently picking the largest and discarding the
-    rest would lose the others without any sign that happened.
+    """Pick the file that represents the issue for this publication.
+
+    Matches by content, the same way search does: recognized magazine/book
+    file types only (covers, NFOs, samples never even considered, regardless
+    of size), then parsed and confidence-checked by name against the
+    publication. This is more precise than a size guess — the real issue
+    file isn't always the largest, and it correctly tells apart "one issue
+    plus junk extras" from "several distinct issues bundled together" (a real
+    "annual archive" release with one file per month was confirmed live —
+    each file parses to a different identifier, not just "another big file").
+
+    Falls back to the largest recognized-type file if nothing confidently
+    matches by name; the caller's own confidence check downstream still
+    catches that case for review.
     """
     if not files:
         return None, []
-    candidates = files
+
+    typed = [f for f in files if _file_extension(f.get("name", "")) in FORMAT_EXTENSIONS]
     if format_preference != "any":
-        preferred = [f for f in files if f.get("name", "").lower().endswith(f".{format_preference}")]
+        preferred = [f for f in typed if _file_extension(f.get("name", "")) == format_preference]
         if preferred:
-            candidates = preferred
-    if not candidates:
+            typed = preferred
+    if not typed:
         return None, []
 
-    ranked = sorted(candidates, key=lambda f: f.get("size", 0), reverse=True)
-    chosen = ranked[0]
-    threshold = max(_SUBSTANTIAL_MIN_BYTES, _SUBSTANTIAL_MIN_FRACTION * (chosen.get("size", 0) or 0))
-    other_substantial = [f for f in ranked[1:] if f.get("size", 0) >= threshold]
-    return chosen, other_substantial
+    matches = []
+    for f in typed:
+        parsed = parse(f["name"])
+        if parsed.identifier is not None and is_confident_match(parsed, publication_title, aliases):
+            matches.append((f, parsed.identifier))
+
+    if matches:
+        distinct_identifiers = {identifier for _, identifier in matches}
+        chosen = max((f for f, _ in matches), key=lambda f: f.get("size", 0))
+        if len(distinct_identifiers) <= 1:
+            return chosen, []  # one issue, possibly duplicated across formats — no ambiguity
+        return chosen, [f for f, _ in matches if f is not chosen]  # distinct issues bundled together
+
+    # Nothing confidently matched by name — fall back to the largest
+    # recognized-type file; the confidence check on it downstream will still
+    # flag it for review if this guess is also wrong.
+    ranked = sorted(typed, key=lambda f: f.get("size", 0), reverse=True)
+    return ranked[0], []
 
 
 def _import_file(source_path: Path, target_dir: Path, identifier: str, title: str) -> Path:
@@ -138,20 +160,21 @@ def run_import_job(db: Session, qbt: QBittorrentClient) -> dict:
             logger.exception("Failed to list files for grab %s", grab.id)
             continue
 
-        main_file, other_substantial = _classify_files(files, publication.format_preference.value)
+        main_file, other_matches = _select_issue_file(
+            files, publication.format_preference.value, publication.title, publication.aliases
+        )
         if main_file is None:
             _flag_for_review(db, grab, torrent.get("content_path", ""), "no files found in torrent")
             flagged_for_review.append(grab.id)
             continue
 
-        if other_substantial:
-            names = ", ".join(f["name"] for f in [main_file, *other_substantial])
+        if other_matches:
+            names = ", ".join(f["name"] for f in [main_file, *other_matches])
             _flag_for_review(
                 db,
                 grab,
                 torrent.get("content_path", ""),
-                f"torrent contains multiple substantial files, can't tell which is the "
-                f"issue (or if this is a multi-issue archive): {names}",
+                f"torrent bundles multiple distinct issues, can't import just one: {names}",
             )
             flagged_for_review.append(grab.id)
             continue
