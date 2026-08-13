@@ -74,9 +74,12 @@ missing, rather than booting fine and failing silently later in the background s
 - `POST /jobs/import-now` — trigger the import job immediately instead of waiting for the
   next scheduled tick (useful for testing)
 - `GET /grabs` — history of what's been grabbed and its status
-- `GET /review` — items that couldn't be confidently auto-matched
+- `GET /review` — items that couldn't be confidently auto-matched, including grabs that turned
+  out to be a duplicate of a torrent qBittorrent already had (see below)
 - `POST /review/{id}/resolve` — manually assign a review item to a publication + issue identifier,
-  which imports it into that publication's library folder
+  which imports it into that publication's library folder. Also accepts an optional `file_path`
+  to override the source path recorded at review time — required for duplicate-torrent items,
+  since their real file location isn't known automatically; find it in qBittorrent and pass it here
 - `GET /search/preview?query=...` — read-only: hits Prowlarr and shows what the parser/matcher
   would see for a query, without grabbing anything or writing to the database. Useful for
   checking indexer coverage and parse quality for a title before adding it as a publication.
@@ -105,6 +108,12 @@ different path, set `MAGAZINERR_QBITTORRENT_DOWNLOADS_LOCAL_PATH` to that local 
 import will use it instead of trusting the API's `save_path` directly. Hardlinking
 (no extra disk space, keeps seeding) only succeeds if `target_dir` is on the *same*
 filesystem as that downloads path; otherwise it falls back to a plain copy automatically.
+
+**Duplicate torrents**: if the release qBittorrent was asked to add turns out to already
+be a torrent it has elsewhere (matched by info-hash), no *new* torrent is created — the
+grab is immediately flagged for review instead of being left stuck at "downloading"
+forever with nothing to import. Resolve it by finding the existing file in qBittorrent
+and passing its path as `file_path` to `POST /review/{id}/resolve`.
 
 ## Testing
 

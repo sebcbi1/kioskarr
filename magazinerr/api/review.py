@@ -25,6 +25,10 @@ class ReviewItemOut(BaseModel):
 class ResolveReviewItem(BaseModel):
     publication_id: int
     identifier: str
+    # Override the source path recorded at review-creation time — needed when
+    # that path was never actually known (e.g. a duplicate-torrent grab has no
+    # file_path to start with) or turned out to be wrong.
+    file_path: str | None = None
 
 
 @router.get("", response_model=list[ReviewItemOut])
@@ -43,7 +47,8 @@ def resolve_review_item(
     if publication is None:
         raise HTTPException(404, "Publication not found")
 
-    import_issue(db, item.grab, Path(item.file_path), payload.identifier, publication)
+    source_path = Path(payload.file_path) if payload.file_path else Path(item.file_path)
+    import_issue(db, item.grab, source_path, payload.identifier, publication)
     item.resolved = True
     db.commit()
     db.refresh(item)

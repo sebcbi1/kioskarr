@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from magazinerr.config import settings
 from magazinerr.matcher import is_confident_match, issue_already_owned
-from magazinerr.models import Grab, GrabStatus, Publication
+from magazinerr.models import Grab, GrabStatus, Publication, ReviewItem
 from magazinerr.parser import ParsedRelease, identifier_sort_key, is_identifier_newer, parse
 from magazinerr.prowlarr_client import ProwlarrClient, Release
 from magazinerr.qbittorrent_client import QBittorrentClient
@@ -39,12 +39,15 @@ def search_with_fallback(prowlarr: ProwlarrClient, query: str) -> list:
 
 
 def _already_in_flight(db: Session, publication_id: int, identifier: str) -> bool:
+    # needs_review counts as "already handled" too — otherwise a stuck grab
+    # (e.g. the duplicate-torrent case) would get re-attempted and re-flagged
+    # every single search cycle instead of waiting for manual resolution.
     return (
         db.query(Grab)
         .filter(
             Grab.publication_id == publication_id,
             Grab.identifier == identifier,
-            Grab.status.in_([GrabStatus.downloading, GrabStatus.completed]),
+            Grab.status.in_([GrabStatus.downloading, GrabStatus.completed, GrabStatus.needs_review]),
         )
         .first()
         is not None
@@ -116,13 +119,12 @@ def run_search_job(
                     "Failed to add torrent for %s: %s", publication.title, release.title
                 )
                 continue
-            if torrent_hash is None:
-                logger.warning(
-                    "Added %s for %s but no new torrent hash appeared — likely a duplicate "
-                    "of a torrent qBittorrent already had; it won't be tracked for import.",
-                    release.title,
-                    publication.title,
-                )
+
+            # No new hash appeared after a fair wait (see QBittorrentClient.add_torrent) —
+            # almost certainly a duplicate of a torrent qBittorrent already had elsewhere.
+            # Flag it now rather than leaving a "downloading" Grab that can never be
+            # matched back to a torrent and would sit stuck forever.
+            status = GrabStatus.downloading if torrent_hash else GrabStatus.needs_review
 
             grab = Grab(
                 publication_id=publication.id,
@@ -131,9 +133,30 @@ def run_search_job(
                 identifier=parsed.identifier,
                 torrent_hash=torrent_hash,
                 indexer_id=str(release.indexer_id) if release.indexer_id is not None else None,
-                status=GrabStatus.downloading,
+                status=status,
             )
             db.add(grab)
+            db.flush()  # assign grab.id for the ReviewItem FK below
+
+            if torrent_hash is None:
+                logger.warning(
+                    "Added %s for %s but no new torrent hash appeared — flagged for review.",
+                    release.title,
+                    publication.title,
+                )
+                db.add(
+                    ReviewItem(
+                        grab_id=grab.id,
+                        file_path="",
+                        reason=(
+                            "Added to qBittorrent but no new torrent hash appeared — likely "
+                            "a duplicate of a torrent already present elsewhere. Find the "
+                            "existing file and resolve with its path."
+                        ),
+                        candidate_publication_id=publication.id,
+                    )
+                )
+
             new_grabs.append(grab)
 
         db.commit()

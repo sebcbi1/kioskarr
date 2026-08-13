@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from magazinerr.db import Base
 from magazinerr.jobs.search_job import run_search_job
-from magazinerr.models import Publication, PublicationType
+from magazinerr.models import Grab, GrabStatus, Publication, PublicationType, ReviewItem
 from magazinerr.prowlarr_client import Release
 
 
@@ -29,11 +29,16 @@ class FakeProwlarr:
 
 
 class FakeQbt:
-    def __init__(self):
+    def __init__(self, simulate_duplicate=False):
         self.added = []
+        # A duplicate of a torrent qBittorrent already had: add "succeeds" but
+        # no new hash ever appears, same as the real add_torrent's contract.
+        self.simulate_duplicate = simulate_duplicate
 
     def add_torrent(self, url, category):
         self.added.append((url, category))
+        if self.simulate_duplicate:
+            return None
         return f"hash-{len(self.added)}"
 
 
@@ -128,3 +133,42 @@ def test_cold_start_with_no_eligible_candidates_leaves_baseline_unset(db_session
 
     assert grabs == []
     assert pub.baseline_identifier is None  # retries cold start next cycle
+
+
+def test_duplicate_grab_gets_flagged_for_review_not_left_stuck(db_session):
+    # Real bug found live-testing: a torrent qBittorrent already had elsewhere
+    # never gets a new hash, so it could never be matched back to by import_job
+    # and would sit at "downloading" forever with no way to resolve it.
+    pub = _publication(db_session)
+    prowlarr = FakeProwlarr(OUEST_FRANCE_RELEASES)
+    qbt = FakeQbt(simulate_duplicate=True)
+
+    grabs = run_search_job(db_session, prowlarr, qbt, publications=[pub])
+
+    assert len(grabs) == 1
+    grab = grabs[0]
+    assert grab.torrent_hash is None
+    assert grab.status == GrabStatus.needs_review
+
+    review_item = db_session.query(ReviewItem).filter(ReviewItem.grab_id == grab.id).one()
+    assert not review_item.resolved
+    assert "duplicate" in review_item.reason.lower()
+
+    # baseline still advances — the cold-start floor shouldn't get stuck
+    # re-litigating the same duplicate on every future cycle either.
+    assert pub.baseline_identifier == "2026-06-22"
+
+
+def test_duplicate_grab_is_not_retried_on_the_next_cycle(db_session):
+    pub = _publication(db_session)
+    prowlarr = FakeProwlarr(OUEST_FRANCE_RELEASES)
+    qbt = FakeQbt(simulate_duplicate=True)
+    run_search_job(db_session, prowlarr, qbt, publications=[pub])
+    assert db_session.query(Grab).count() == 1
+
+    # Same candidates come back next cycle — should not create a second Grab
+    # (and re-flag) for the same already-flagged identifier.
+    grabs = run_search_job(db_session, prowlarr, qbt, publications=[pub])
+
+    assert grabs == []
+    assert db_session.query(Grab).count() == 1
