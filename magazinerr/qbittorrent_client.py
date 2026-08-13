@@ -3,6 +3,8 @@
 Auth is cookie-based: login once, the session cookie carries subsequent calls.
 """
 
+import time
+
 import requests
 
 
@@ -41,7 +43,22 @@ class QBittorrentClient:
                 f"{response.status_code} {response.text}"
             )
 
-    def add_torrent(self, url: str, category: str, save_path: str | None = None) -> None:
+    def add_torrent(
+        self, url: str, category: str, save_path: str | None = None, poll_attempts: int = 10
+    ) -> str | None:
+        """Add a torrent and return its info-hash.
+
+        The add endpoint's response body doesn't include the hash (just "Ok."),
+        and the torrent's *name* as later reported by qBittorrent is often not
+        the release title we searched with — matching a later-completed
+        download back to this grab by name is unreliable. Instead, snapshot the
+        category's hashes before and after, and poll briefly for the new one to
+        appear (qBittorrent needs a moment to fetch the .torrent and register
+        it). Returns None if no new hash appears — most likely because this is
+        a duplicate of a torrent qBittorrent already had.
+        """
+        before = {t["hash"] for t in self.list_torrents(category=category)}
+
         data = {"urls": url, "category": category}
         if save_path:
             data["savepath"] = save_path
@@ -51,6 +68,14 @@ class QBittorrentClient:
         response.raise_for_status()
         if response.text.strip() not in ("Ok.", ""):
             raise QBittorrentError(f"Failed to add torrent {url!r}: {response.text!r}")
+
+        for _ in range(poll_attempts):
+            time.sleep(0.5)
+            after = {t["hash"] for t in self.list_torrents(category=category)}
+            new_hashes = after - before
+            if new_hashes:
+                return next(iter(new_hashes))
+        return None
 
     def list_torrents(self, category: str | None = None) -> list[dict]:
         params = {"category": category} if category else {}

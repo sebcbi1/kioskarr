@@ -110,18 +110,26 @@ def run_search_job(
 
         for release, parsed in to_grab:
             try:
-                qbt.add_torrent(release.download_url, category=settings.qbittorrent_category)
+                torrent_hash = qbt.add_torrent(release.download_url, category=settings.qbittorrent_category)
             except Exception:
                 logger.exception(
                     "Failed to add torrent for %s: %s", publication.title, release.title
                 )
                 continue
+            if torrent_hash is None:
+                logger.warning(
+                    "Added %s for %s but no new torrent hash appeared — likely a duplicate "
+                    "of a torrent qBittorrent already had; it won't be tracked for import.",
+                    release.title,
+                    publication.title,
+                )
 
             grab = Grab(
                 publication_id=publication.id,
                 release_title=release.title,
                 release_guid=release.guid,
                 identifier=parsed.identifier,
+                torrent_hash=torrent_hash,
                 indexer_id=str(release.indexer_id) if release.indexer_id is not None else None,
                 status=GrabStatus.downloading,
             )

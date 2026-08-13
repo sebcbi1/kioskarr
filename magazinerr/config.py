@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     qbittorrent_username: str = "admin"
     qbittorrent_password: str = ""
     qbittorrent_category: str = "magazinerr"
+    # Local filesystem path where qBittorrent's own save_path (as reported by its
+    # API) is actually reachable from this process — e.g. a mount of a remote
+    # download directory. When unset, the import job trusts the API's save_path
+    # directly, which only works if magazinerr runs on the same host/filesystem
+    # as qBittorrent.
+    qbittorrent_downloads_local_path: str = ""
 
     library_root: str = "./library"
 

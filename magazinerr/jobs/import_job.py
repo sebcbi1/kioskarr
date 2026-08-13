@@ -38,6 +38,17 @@ def _import_file(source_path: Path, target_dir: Path, identifier: str, title: st
     return target_path
 
 
+def _downloads_root(torrent: dict) -> Path:
+    """The base directory to join a torrent's file names against. qBittorrent
+    reports its own save_path, which is only directly usable if this process
+    runs on the same host/filesystem; qbittorrent_downloads_local_path overrides
+    it for a mounted/synced copy of that directory reachable at a different path.
+    """
+    if settings.qbittorrent_downloads_local_path:
+        return Path(settings.qbittorrent_downloads_local_path)
+    return Path(torrent["save_path"])
+
+
 def _match_torrent(grab: Grab, torrents: list[dict]) -> dict | None:
     if grab.torrent_hash:
         for torrent in torrents:
@@ -81,7 +92,7 @@ def import_issue(
     return issue
 
 
-def run_import_job(db: Session, qbt: QBittorrentClient) -> None:
+def run_import_job(db: Session, qbt: QBittorrentClient) -> dict:
     torrents = qbt.list_torrents(category=settings.qbittorrent_category)
 
     pending_grabs = (
@@ -89,6 +100,9 @@ def run_import_job(db: Session, qbt: QBittorrentClient) -> None:
         .filter(Grab.status.in_([GrabStatus.downloading, GrabStatus.completed]))
         .all()
     )
+
+    imported: list[str] = []
+    flagged_for_review: list[int] = []
 
     for grab in pending_grabs:
         torrent = _match_torrent(grab, torrents)
@@ -107,9 +121,10 @@ def run_import_job(db: Session, qbt: QBittorrentClient) -> None:
         main_file = _pick_main_file(files, publication.format_preference.value)
         if main_file is None:
             _flag_for_review(db, grab, torrent.get("content_path", ""), "no files found in torrent")
+            flagged_for_review.append(grab.id)
             continue
 
-        source_path = Path(torrent["save_path"]) / main_file["name"]
+        source_path = _downloads_root(torrent) / main_file["name"]
         parsed = parse(main_file["name"])
 
         confident = parsed.identifier is not None and is_confident_match(
@@ -117,6 +132,10 @@ def run_import_job(db: Session, qbt: QBittorrentClient) -> None:
         )
         if not confident:
             _flag_for_review(db, grab, str(source_path), "low-confidence match on completed file")
+            flagged_for_review.append(grab.id)
             continue
 
-        import_issue(db, grab, source_path, parsed.identifier, publication)
+        issue = import_issue(db, grab, source_path, parsed.identifier, publication)
+        imported.append(issue.file_path)
+
+    return {"imported": imported, "flagged_for_review": flagged_for_review}

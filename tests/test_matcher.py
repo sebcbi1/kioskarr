@@ -35,6 +35,22 @@ def test_is_confident_match_respects_threshold():
     assert not is_confident_match(parsed, "Wired USA", [], threshold=75.0)
 
 
+def test_confidently_matches_real_daily_but_rejects_differently_branded_siblings():
+    # Real live-data check: "Le Monde" (the daily) must confidently match, while
+    # its differently-branded siblings (which also contain "Le Monde" as a
+    # substring) must not — otherwise a "Le Monde" publication would also grab
+    # an unrelated magazine.
+    daily = parse("Le.Monde.N.25342.Du.23.Juin.2026.FR.[PDF]-G11")
+    assert is_confident_match(daily, "Le Monde", [])
+
+    for sibling_title in [
+        "Le.Monde.Diplomatique.N.865.Avril.2026.FR.[PDF]-G11",
+        "Le.Monde.Du.Camping.Car.N374.Aout.Septembre.2025.FR.[PDF]-NOTAG",
+        "Le.Monde.Magazine.Du.7.Mars.2026.FR.[PDF]-G11",
+    ]:
+        assert not is_confident_match(parse(sibling_title), "Le Monde", [])
+
+
 def test_issue_already_owned(db_session):
     pub = Publication(
         title="Wired USA",

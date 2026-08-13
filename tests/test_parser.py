@@ -85,6 +85,17 @@ def test_bare_french_issue_marker_without_date():
     assert result.identifier_kind == "issue"
 
 
+def test_title_guess_strips_issue_marker_when_date_also_present():
+    # Real bug: "Le.Monde.N.25342.Du.23.Juin.2026" parsed the date correctly but
+    # left "N 25342" in title_guess ("Le Monde N 25342 Du"), which scored only
+    # 59/100 against a clean "Le Monde" publication title — below the default
+    # 75 confidence threshold, meaning it would never have actually auto-grabbed.
+    result = parse("Le.Monde.N.25342.Du.23.Juin.2026.FR.[PDF]-G11")
+    assert result.identifier == "2026-06-23"
+    assert "25342" not in result.title_guess
+    assert result.title_guess.lower() == "le monde du"
+
+
 def test_identifier_sort_key_orders_dates_correctly():
     assert identifier_sort_key("2026-06-23") < identifier_sort_key("2026-06-24")
     assert identifier_sort_key("2026-04") < identifier_sort_key("2026-04-02")  # month-only sorts before any specific day

@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from magazinerr.api import grabs, publications, review, search
+from magazinerr.api import grabs, jobs, publications, review, search
 from magazinerr.db import init_db
 from magazinerr.scheduler import start_scheduler, stop_scheduler
 
@@ -20,6 +20,7 @@ app.include_router(publications.router)
 app.include_router(review.router)
 app.include_router(grabs.router)
 app.include_router(search.router)
+app.include_router(jobs.router)
 
 
 @app.get("/health")

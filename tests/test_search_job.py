@@ -34,6 +34,7 @@ class FakeQbt:
 
     def add_torrent(self, url, category):
         self.added.append((url, category))
+        return f"hash-{len(self.added)}"
 
 
 def _release(title, guid, seeders=10):
@@ -80,6 +81,9 @@ def test_cold_start_grabs_only_latest_by_default(db_session):
 
     assert len(grabs) == 1
     assert grabs[0].identifier == "2026-06-22"
+    assert grabs[0].torrent_hash == "hash-1"  # captured so import can find it later —
+    # a torrent's *name* as later reported by qBittorrent isn't reliably the release
+    # title we searched with, so matching by name alone isn't a safe fallback.
     assert pub.baseline_identifier == "2026-06-22"
     assert len(qbt.added) == 1
 

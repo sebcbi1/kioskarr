@@ -152,6 +152,21 @@ def _extract_format(raw_title: str) -> str | None:
     return None
 
 
+def _strip_issue_marker(text: str) -> str:
+    """Drop an issue-number marker ("N.25342", "#245"...) from a title guess.
+
+    Many French periodicals carry both an issue number AND a date in the same
+    release name (e.g. "Le Monde N.25342 Du 23 Juin 2026"). The date pattern
+    match only removes the date span, leaving "N 25342 Du" in title_guess —
+    which is close enough to poison the fuzzy match against a clean
+    publication title ("Le Monde" alone scored 59/100 against it, well under
+    the default 75 confidence threshold).
+    """
+    stripped = _ISSUE_RE.sub(" ", text)
+    stripped = re.sub(r"\s+", " ", stripped).strip(" -")
+    return stripped or text
+
+
 def parse(release_title: str) -> ParsedRelease:
     normalized = normalize(release_title)
     format_ext = _extract_format(release_title)
@@ -165,6 +180,7 @@ def parse(release_title: str) -> ParsedRelease:
         title_guess = normalized[: match.start()].strip(" -")
         if not title_guess:
             title_guess = normalized[match.end():].strip(" -")
+        title_guess = _strip_issue_marker(title_guess)
         return ParsedRelease(release_title, normalized, title_guess or normalized, identifier, "date", format_ext)
 
     match = _ISSUE_RE.search(normalized)
