@@ -30,14 +30,28 @@ def _select_issue_file(
     file types only (covers, NFOs, samples never even considered, regardless
     of size), then parsed and confidence-checked by name against the
     publication. This is more precise than a size guess — the real issue
-    file isn't always the largest, and it correctly tells apart "one issue
-    plus junk extras" from "several distinct issues bundled together" (a real
-    "annual archive" release with one file per month was confirmed live —
-    each file parses to a different identifier, not just "another big file").
+    file isn't always the largest, and it's the only way to handle two real
+    release shapes seen live: an "annual archive" bundling one file per month
+    of the *same* publication (distinct identifiers, same title), and a
+    "national newspapers" bundle for one date containing many *different*
+    newspapers (same identifier, only one of which is ours by title).
 
-    Falls back to the largest recognized-type file if nothing confidently
-    matches by name; the caller's own confidence check downstream still
-    catches that case for review.
+    Returns (chosen, others):
+      - (file, [])              — a clear single answer, possibly the only
+                                    typed file in the torrent at all
+      - (file, [other files])   — multiple confident matches with different
+                                    identifiers: a genuine multi-issue bundle
+      - (None, [])              — no recognized file types in the torrent
+      - (None, [candidates])    — more than one typed file, but none
+                                    confidently matches by name
+
+    Deliberately does NOT fall back to "the largest file" when nothing
+    confidently matches and there's more than one candidate: in a bundle of
+    several *different* publications for the same date (confirmed live — a
+    "Journaux Nationaux" torrent contains a dozen different French dailies for
+    one date), the largest file has no relationship to which one is ours —
+    guessing risks importing a wholly different newspaper mislabeled as this
+    one. Only safe to just use the file outright when it's the sole candidate.
     """
     if not files:
         return None, []
@@ -50,24 +64,23 @@ def _select_issue_file(
     if not typed:
         return None, []
 
+    if len(typed) == 1:
+        return typed[0], []
+
     matches = []
     for f in typed:
         parsed = parse(f["name"])
         if parsed.identifier is not None and is_confident_match(parsed, publication_title, aliases):
             matches.append((f, parsed.identifier))
 
-    if matches:
-        distinct_identifiers = {identifier for _, identifier in matches}
-        chosen = max((f for f, _ in matches), key=lambda f: f.get("size", 0))
-        if len(distinct_identifiers) <= 1:
-            return chosen, []  # one issue, possibly duplicated across formats — no ambiguity
-        return chosen, [f for f, _ in matches if f is not chosen]  # distinct issues bundled together
+    if not matches:
+        return None, typed  # can't tell which of several candidates is ours — don't guess
 
-    # Nothing confidently matched by name — fall back to the largest
-    # recognized-type file; the confidence check on it downstream will still
-    # flag it for review if this guess is also wrong.
-    ranked = sorted(typed, key=lambda f: f.get("size", 0), reverse=True)
-    return ranked[0], []
+    distinct_identifiers = {identifier for _, identifier in matches}
+    chosen = max((f for f, _ in matches), key=lambda f: f.get("size", 0))
+    if len(distinct_identifiers) <= 1:
+        return chosen, []  # one issue, possibly duplicated across formats — no ambiguity
+    return chosen, [f for f, _ in matches if f is not chosen]  # distinct issues bundled together
 
 
 def _import_file(source_path: Path, target_dir: Path, identifier: str, title: str) -> Path:
@@ -164,7 +177,15 @@ def run_import_job(db: Session, qbt: QBittorrentClient) -> dict:
             files, publication.format_preference.value, publication.title, publication.aliases
         )
         if main_file is None:
-            _flag_for_review(db, grab, torrent.get("content_path", ""), "no files found in torrent")
+            if other_matches:
+                names = ", ".join(f["name"] for f in other_matches)
+                reason = (
+                    f"torrent has {len(other_matches)} candidate files but none confidently "
+                    f"matches this publication by name — won't guess which is ours: {names}"
+                )
+            else:
+                reason = "no recognized magazine/book file types found in torrent"
+            _flag_for_review(db, grab, torrent.get("content_path", ""), reason)
             flagged_for_review.append(grab.id)
             continue
 

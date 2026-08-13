@@ -93,13 +93,53 @@ def test_same_issue_in_two_formats_is_not_treated_as_ambiguous():
     assert others == []
 
 
-def test_falls_back_to_largest_recognized_file_when_nothing_matches_by_name():
+def test_uses_the_sole_typed_file_even_if_it_doesnt_confidently_match():
+    # Only one real candidate exists — no ambiguity to guess wrong about, so
+    # use it. The caller's own confidence check downstream still catches a bad
+    # single-file match and flags it for review.
+    files = [{"name": "scan001.pdf", "size": 20_000_000}]
+    chosen, others = _select_issue_file(files, "any", "Wired USA", [])
+    assert chosen["name"] == "scan001.pdf"
+    assert others == []
+
+
+def test_does_not_guess_by_size_when_several_candidates_none_confidently_match():
+    # Real bug found live: with more than one candidate and nothing confident,
+    # falling back to "the largest" has no relationship to which is ours — in
+    # a bundle of different publications for one date, that risks importing a
+    # wholly different publication mislabeled as this one.
     files = [
         {"name": "scan001.pdf", "size": 20_000_000},
         {"name": "scan002.pdf", "size": 500_000},
     ]
     chosen, others = _select_issue_file(files, "any", "Wired USA", [])
-    assert chosen["name"] == "scan001.pdf"
+    assert chosen is None
+    assert {f["name"] for f in others} == {"scan001.pdf", "scan002.pdf"}
+
+
+def test_real_national_newspaper_bundle_isolates_the_right_publication():
+    # Real torrent found live: "Journaux Nationaux" bundles a dozen different
+    # French dailies for one date in a single torrent. Only the file whose
+    # name confidently matches the publication should be picked — not the
+    # largest file overall (which here is Le Figaro, unrelated to Ouest France).
+    files = [
+        {"name": "Aujourd'hui en France du 12.08.2025.pdf", "size": 11926616},
+        {"name": "L'Equipe du 12.08.2025.pdf", "size": 27770279},
+        {"name": "Le Figaro du 12.08.2025.pdf", "size": 31292638},  # largest of all
+        {"name": "Les Echos du 12.08.2025.pdf", "size": 23221682},
+        {"name": "Ouest-France Edition France du 12.08.2025.pdf", "size": 12574174},
+    ]
+    # "Ouest-France Edition France" is the real uploader naming — needs the
+    # alias, the same way "Science & Vie" vs "Science et Vie" did; without it
+    # this should correctly refuse to guess rather than pick Le Figaro.
+    chosen, others = _select_issue_file(files, "any", "Ouest France", [])
+    assert chosen is None
+    assert len(others) == 5
+
+    chosen, others = _select_issue_file(
+        files, "any", "Ouest France", ["Ouest-France Edition France"]
+    )
+    assert chosen["name"] == "Ouest-France Edition France du 12.08.2025.pdf"
     assert others == []
 
 

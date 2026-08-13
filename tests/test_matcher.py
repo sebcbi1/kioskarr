@@ -51,6 +51,17 @@ def test_confidently_matches_real_daily_but_rejects_differently_branded_siblings
         assert not is_confident_match(parse(sibling_title), "Le Monde", [])
 
 
+def test_alias_with_punctuation_scores_the_same_as_its_normalized_form():
+    # Real bug: title_match_score normalized the parsed release side but not
+    # the publication title/alias side, so "Ouest-France" (the real official
+    # name, with a dash) scored lower than "Ouest France" purely from that
+    # inconsistency — 73.7 vs 94.7, straddling the default 75 threshold.
+    parsed = parse("Ouest-France Edition France du 12.08.2025.pdf")
+    dashed = title_match_score(parsed, "Ouest France", ["Ouest-France Edition France"])
+    spaced = title_match_score(parsed, "Ouest France", ["Ouest France Edition France"])
+    assert dashed == spaced
+
+
 def test_issue_already_owned(db_session):
     pub = Publication(
         title="Wired USA",

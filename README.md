@@ -66,8 +66,10 @@ missing, rather than booting fine and failing silently later in the background s
 ## API
 
 - `POST /publications` — add a publication to watch: `title`, `target_dir`, and optionally
-  `type` (`magazine`/`newspaper`), `aliases` (alternate names uploaders use), `format_preference`
-  (`pdf`/`cbr`/`any`), `min_seeders`, `monitored`, `grab_last_n` (see Cold start below).
+  `type` (`magazine`/`newspaper`), `aliases` (alternate names uploaders use — punctuation like
+  "Ouest-France" vs "Ouest France" doesn't need to match exactly, both sides are normalized
+  the same way before comparing), `format_preference` (`pdf`/`cbr`/`any`), `min_seeders`,
+  `monitored`, `grab_last_n` (see Cold start below).
 - `GET /publications`, `GET/PATCH/DELETE /publications/{id}` — `PATCH` also accepts
   `baseline_identifier` to manually set/reset the cold-start floor (see below).
 - `POST /publications/{id}/search-now` — trigger an immediate search (useful for testing)
@@ -119,12 +121,17 @@ and passing its path as `file_path` to `POST /review/{id}/resolve`.
 right file isn't found by size. Only recognized magazine/book file types (`pdf`, `epub`,
 `cbr`, `cbz`, `mobi`) are ever considered — a cover image or NFO is never a candidate
 regardless of size — and each candidate is parsed and confidence-matched by name against
-the publication, the same way search does. If exactly one file (or several copies of the
-same issue in different formats) matches, it's imported normally. If files with *different*
-identifiers both match, that's a real release shape, not hypothetical: a genuine "annual
-archive" torrent bundling 12 separate monthly issues was found and confirmed during
-testing — it's flagged for review rather than silently importing one and discarding
-the rest.
+the publication, the same way search does. Two real release shapes confirmed during
+testing are both handled: a torrent bundling several issues of the *same* publication
+(a "12-month archive" — files confidently match with different identifiers) and a torrent
+bundling one issue each of several *different* publications for one date (a "national
+newspapers" bundle — only the file whose name confidently matches this publication is a
+candidate at all). Either way, if more than one distinct issue is a genuine confident
+match, that's flagged for review rather than silently importing one and discarding the
+rest. If there's more than one candidate file and *none* confidently matches, it's also
+flagged rather than guessed — falling back to "the largest file" would risk importing an
+entirely unrelated publication's issue mislabeled as this one when a torrent bundles
+several different publications.
 
 ## Testing
 

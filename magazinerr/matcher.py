@@ -9,13 +9,18 @@ from rapidfuzz import fuzz
 from sqlalchemy.orm import Session
 
 from magazinerr.config import settings
-from magazinerr.parser import ParsedRelease
+from magazinerr.parser import ParsedRelease, normalize
 
 
 def title_match_score(parsed: ParsedRelease, publication_title: str, aliases: list[str]) -> float:
+    # parsed.title_guess already went through normalize() (dash/diacritic/etc.
+    # stripping) when the release title was parsed — the publication's own
+    # title/aliases need the same treatment before comparing, or a name with
+    # real punctuation (e.g. "Ouest-France", the actual official name) scores
+    # lower than it should purely from an inconsistent left/right-hand format.
     best = 0.0
     for candidate in (publication_title, *aliases):
-        score = fuzz.token_sort_ratio(parsed.title_guess.lower(), candidate.lower())
+        score = fuzz.token_sort_ratio(parsed.title_guess.lower(), normalize(candidate).lower())
         best = max(best, score)
     return best
 
