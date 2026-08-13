@@ -93,3 +93,22 @@ class QBittorrentClient:
         )
         response.raise_for_status()
         return response.json()
+
+    def set_file_priorities(self, torrent_hash: str, file_indices: list[int], priority: int) -> None:
+        """priority=0 means "do not download" — used to skip files we don't want
+        (e.g. the other newspapers in a multi-publication bundle torrent) without
+        downloading them at all."""
+        if not file_indices:
+            return
+        response = self._session.post(
+            f"{self.base_url}/api/v2/torrents/filePrio",
+            data={
+                "hash": torrent_hash,
+                "id": "|".join(str(i) for i in file_indices),
+                "priority": priority,
+            },
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        if response.text.strip() not in ("Ok.", ""):
+            raise QBittorrentError(f"Failed to set file priorities: {response.text!r}")

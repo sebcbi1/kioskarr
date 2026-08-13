@@ -3,7 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from magazinerr.db import Base
-from magazinerr.jobs.import_job import _select_issue_file, run_import_job
+from magazinerr.jobs.import_job import _parse_file_entry, _select_issue_file, run_import_job
 from magazinerr.models import FormatPreference, Grab, GrabStatus, Publication, PublicationType, ReviewItem
 
 
@@ -42,6 +42,49 @@ REAL_ARCHIVE_FILES = [
 REAL_SINGLE_ISSUE_FILES = [
     {"name": "Le Monde diplomatique N865 • Avril 2026.Pdf", "size": 14251844},
 ]
+
+# Real folder-prefixed file listing from an actual live-added "Journaux Nationaux"
+# torrent (added to a real qBittorrent instance and queried via torrents/files).
+# Note the folder itself carries a date ("12 Août 2025") — qBittorrent reports
+# file names as "<folder>/<file>", and parse() has no concept of path
+# boundaries, so it must only ever see the basename or it picks up the
+# folder's date/title instead of the actual file's.
+_FOLDER = "Journaux Nationaux du Mardi 12 Août 2025"
+REAL_NATIONAL_BUNDLE_FILES = [
+    {"name": f"{_FOLDER}/Aujourd’hui en France du 12.08.2025.pdf", "size": 11926616},
+    {"name": f"{_FOLDER}/L'Equipe du 12.08.2025.pdf", "size": 27770279},
+    {"name": f"{_FOLDER}/L'Humanite du 12.08.2025.pdf", "size": 12967791},
+    {"name": f"{_FOLDER}/La Croix du 12.08.2025.pdf", "size": 11476499},
+    {"name": f"{_FOLDER}/La Provence du 12.08.2025.pdf", "size": 10535791},
+    {"name": f"{_FOLDER}/Le Figaro du 12.08.2025.pdf", "size": 31292638},
+    {"name": f"{_FOLDER}/Le Parisien du 12.08.2025.pdf", "size": 10695835},
+    {"name": f"{_FOLDER}/Le Temps du 12.08.2025.pdf", "size": 17311467},
+    {"name": f"{_FOLDER}/Les Echos du 12.08.2025.pdf", "size": 23221682},
+    {"name": f"{_FOLDER}/Libération du 12.08.2025.pdf", "size": 23602620},
+    {"name": f"{_FOLDER}/L’Opinion du 12.08.2025.pdf", "size": 7915940},
+    {"name": f"{_FOLDER}/Ouest-France Edition France du 12.08.2025.pdf", "size": 12574174},
+]
+
+
+def test_parse_file_entry_ignores_the_folder_prefix():
+    # Real bug found live: the raw name here parses "12 Aout 2025" from the
+    # FOLDER'S own date and returns a title_guess starting with "Journaux
+    # Nationaux..." — completely wrong. Only the basename should be parsed.
+    name = f"{_FOLDER}/Ouest-France Edition France du 12.08.2025.pdf"
+    parsed = _parse_file_entry(name)
+    assert parsed.title_guess == "Ouest France Edition France du"
+    assert "journaux" not in parsed.title_guess.lower()
+
+
+def test_real_national_bundle_isolates_ouest_france_despite_folder_prefix():
+    # Real torrent, added live to a real qBittorrent instance and queried via
+    # torrents/files — confirms the folder-prefix fix works end-to-end, not
+    # just against a hand-built name.
+    chosen, others = _select_issue_file(
+        REAL_NATIONAL_BUNDLE_FILES, "any", "Ouest France", ["Ouest France Edition France"]
+    )
+    assert chosen["name"].endswith("Ouest-France Edition France du 12.08.2025.pdf")
+    assert others == []
 
 
 def test_flags_real_multi_issue_archive_by_content_not_size():

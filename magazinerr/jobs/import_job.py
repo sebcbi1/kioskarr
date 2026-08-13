@@ -21,6 +21,19 @@ def _file_extension(name: str) -> str:
     return Path(name).suffix.lstrip(".").lower()
 
 
+def _parse_file_entry(name: str):
+    """Parse a torrent file entry for matching purposes. qBittorrent's file
+    listing includes the relative path within the torrent — for a folder-based
+    multi-file torrent that's "Some Release Folder/actual-file.pdf", and the
+    folder name itself often carries its own date (confirmed live: a
+    "Journaux Nationaux du Mardi 12 Août 2025" folder). parse() has no concept
+    of path boundaries, so it would pick up the *folder's* date/title before
+    ever reaching the real file name. Only the basename should ever be parsed
+    for identifier/title-matching purposes.
+    """
+    return parse(Path(name).name)
+
+
 def _select_issue_file(
     files: list[dict], format_preference: str, publication_title: str, aliases: list[str]
 ) -> tuple[dict | None, list[dict]]:
@@ -69,7 +82,7 @@ def _select_issue_file(
 
     matches = []
     for f in typed:
-        parsed = parse(f["name"])
+        parsed = _parse_file_entry(f["name"])
         if parsed.identifier is not None and is_confident_match(parsed, publication_title, aliases):
             matches.append((f, parsed.identifier))
 
@@ -201,7 +214,7 @@ def run_import_job(db: Session, qbt: QBittorrentClient) -> dict:
             continue
 
         source_path = _downloads_root(torrent) / main_file["name"]
-        parsed = parse(main_file["name"])
+        parsed = _parse_file_entry(main_file["name"])
 
         confident = parsed.identifier is not None and is_confident_match(
             parsed, publication.title, publication.aliases

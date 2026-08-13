@@ -133,6 +133,24 @@ flagged rather than guessed — falling back to "the largest file" would risk im
 entirely unrelated publication's issue mislabeled as this one when a torrent bundles
 several different publications.
 
+For a folder-based multi-file torrent, qBittorrent reports each file's name with its
+folder prefix (`"Some Release Folder/actual-file.pdf"`), and a release folder's own name
+often carries its own date — confirmed live, a "Journaux Nationaux du Mardi 12 Août 2025"
+folder. Matching is always done against the basename only, never the full path, or the
+folder's own date/title would get picked up instead of the actual file's.
+
+**Skipping unwanted files entirely**: rather than downloading a whole bundle and sorting
+it out at import time, as soon as a torrent is grabbed its file list is checked — if
+exactly one file is an unambiguous, confident match, every other file in that torrent is
+set to qBittorrent priority 0 (do not download) immediately. Confirmed live against a
+real "Journaux Nationaux" torrent bundling 12 different French dailies (~200MB total):
+only the matched publication's file (~12MB) actually downloads, the other 11 are skipped
+entirely — worth doing not just for bandwidth/disk, but because downloading (and then
+seeding) 11 newspapers you never wanted burns ratio on a private tracker for nothing.
+This only ever restricts when there's a single confident answer; an ambiguous or
+unmatched torrent downloads everything, so import-time review still has full access to
+every file.
+
 ## Testing
 
 ```bash

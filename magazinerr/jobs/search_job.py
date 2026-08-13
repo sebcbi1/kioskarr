@@ -18,6 +18,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from magazinerr.config import settings
+from magazinerr.jobs.import_job import _select_issue_file
 from magazinerr.matcher import is_confident_match, issue_already_owned
 from magazinerr.models import Grab, GrabStatus, Publication, ReviewItem
 from magazinerr.parser import ParsedRelease, identifier_sort_key, is_identifier_newer, parse
@@ -52,6 +53,40 @@ def _already_in_flight(db: Session, publication_id: int, identifier: str) -> boo
         .first()
         is not None
     )
+
+
+def _restrict_to_matched_file(qbt: QBittorrentClient, torrent_hash: str, publication: Publication) -> None:
+    """Skip downloading files we don't want at all, rather than downloading
+    everything and sorting it out at import time — worth doing whenever the
+    torrent bundles more than one file, since a real "national newspapers"
+    release for one date has been confirmed to bundle a dozen different
+    publications in a single torrent alongside the one we actually want.
+
+    Only restricts when exactly one file is an unambiguous, confident match;
+    otherwise leaves everything downloading so import-time review (which runs
+    the same matching logic) has full access to every candidate file.
+    """
+    try:
+        files = qbt.get_files(torrent_hash)
+    except Exception:
+        logger.exception("Failed to list files for hash %s to restrict download", torrent_hash)
+        return
+    if len(files) <= 1:
+        return  # nothing to restrict
+
+    chosen, others = _select_issue_file(
+        files, publication.format_preference.value, publication.title, publication.aliases
+    )
+    if chosen is None or others:
+        return  # ambiguous, or nothing confidently matched — leave it to import-time review
+
+    skip_indices = [f["index"] for f in files if f is not chosen]
+    if not skip_indices:
+        return
+    try:
+        qbt.set_file_priorities(torrent_hash, skip_indices, priority=0)
+    except Exception:
+        logger.exception("Failed to restrict file priorities for hash %s", torrent_hash)
 
 
 def _eligible_candidates(
@@ -125,6 +160,9 @@ def run_search_job(
             # Flag it now rather than leaving a "downloading" Grab that can never be
             # matched back to a torrent and would sit stuck forever.
             status = GrabStatus.downloading if torrent_hash else GrabStatus.needs_review
+
+            if torrent_hash:
+                _restrict_to_matched_file(qbt, torrent_hash, publication)
 
             grab = Grab(
                 publication_id=publication.id,

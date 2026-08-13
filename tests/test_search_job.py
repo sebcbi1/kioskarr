@@ -29,17 +29,28 @@ class FakeProwlarr:
 
 
 class FakeQbt:
-    def __init__(self, simulate_duplicate=False):
+    def __init__(self, simulate_duplicate=False, files_by_hash=None):
         self.added = []
         # A duplicate of a torrent qBittorrent already had: add "succeeds" but
         # no new hash ever appears, same as the real add_torrent's contract.
         self.simulate_duplicate = simulate_duplicate
+        self.files_by_hash = files_by_hash or {}
+        self.set_priorities_calls = []
 
     def add_torrent(self, url, category):
         self.added.append((url, category))
         if self.simulate_duplicate:
             return None
         return f"hash-{len(self.added)}"
+
+    def get_files(self, torrent_hash):
+        # Default: a single dummy file — len(files) <= 1 means the caller
+        # never attempts a restriction, so tests that don't care about this
+        # are unaffected.
+        return self.files_by_hash.get(torrent_hash, [{"index": 0, "name": "single.pdf", "size": 1000}])
+
+    def set_file_priorities(self, torrent_hash, file_indices, priority):
+        self.set_priorities_calls.append((torrent_hash, file_indices, priority))
 
 
 def _release(title, guid, seeders=10):
@@ -56,10 +67,10 @@ def _release(title, guid, seeders=10):
 
 
 def _publication(db_session, **kwargs):
+    kwargs.setdefault("aliases", [])
     pub = Publication(
         title="Ouest France",
         type=PublicationType.newspaper,
-        aliases=[],
         target_dir="/library/ouest-france",
         **kwargs,
     )
@@ -172,3 +183,43 @@ def test_duplicate_grab_is_not_retried_on_the_next_cycle(db_session):
 
     assert grabs == []
     assert db_session.query(Grab).count() == 1
+
+
+def test_restricts_download_when_torrent_bundles_an_extra_file(db_session):
+    # Real release shape confirmed live: a torrent can bundle more than the
+    # one file we want (a supplement, or in the extreme case a "national
+    # newspapers" bundle with a dozen different publications for one date).
+    # Rather than downloading everything and sorting it out at import time,
+    # skip the file(s) we don't want as soon as we know which is ours.
+    pub = _publication(db_session, aliases=["Ouest France Edition France"])
+    release = _release("Ouest.France.Du.22.Juin.2026.FR.[PDF]-G11", "guid-bundle")
+    prowlarr = FakeProwlarr([release])
+    bundle_files = [
+        {"index": 0, "name": "Ouest-France Edition France du 22.06.2026.pdf", "size": 12_000_000},
+        {"index": 1, "name": "TV Mag Supplement du 22.06.2026.pdf", "size": 5_000_000},
+    ]
+    qbt = FakeQbt(files_by_hash={"hash-1": bundle_files})
+
+    grabs = run_search_job(db_session, prowlarr, qbt, publications=[pub])
+
+    assert len(grabs) == 1
+    assert qbt.set_priorities_calls == [("hash-1", [1], 0)]  # skip everything but index 0
+
+
+def test_does_not_restrict_when_ambiguous(db_session):
+    # If we can't tell which file is ours (or several distinct issues match),
+    # leave everything downloading so import-time review has full access —
+    # restricting here could throw away a file the user actually needs.
+    pub = _publication(db_session)
+    release = _release("Ouest.France.Du.22.Juin.2026.FR.[PDF]-G11", "guid-bundle")
+    prowlarr = FakeProwlarr([release])
+    unmatched_files = [
+        {"index": 0, "name": "Le Figaro du 22.06.2026.pdf", "size": 30_000_000},
+        {"index": 1, "name": "Les Echos du 22.06.2026.pdf", "size": 20_000_000},
+    ]
+    qbt = FakeQbt(files_by_hash={"hash-1": unmatched_files})
+
+    grabs = run_search_job(db_session, prowlarr, qbt, publications=[pub])
+
+    assert len(grabs) == 1
+    assert qbt.set_priorities_calls == []
