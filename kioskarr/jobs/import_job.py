@@ -8,9 +8,9 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from kioskarr.config import settings
-from kioskarr.matcher import is_confident_match
-from kioskarr.models import Grab, GrabStatus, Issue, Publication, ReviewItem
+from kioskarr.app_settings import get_app_settings
+from kioskarr.matcher import DEFAULT_MATCH_CONFIDENCE_THRESHOLD, is_confident_match
+from kioskarr.models import AppSettings, Grab, GrabStatus, Issue, Publication, ReviewItem
 from kioskarr.parser import FORMAT_EXTENSIONS, parse
 from kioskarr.qbittorrent_client import QBittorrentClient
 
@@ -35,7 +35,11 @@ def _parse_file_entry(name: str):
 
 
 def _select_issue_file(
-    files: list[dict], format_preference: str, publication_title: str, aliases: list[str]
+    files: list[dict],
+    format_preference: str,
+    publication_title: str,
+    aliases: list[str],
+    threshold: float = DEFAULT_MATCH_CONFIDENCE_THRESHOLD,
 ) -> tuple[dict | None, list[dict]]:
     """Pick the file that represents the issue for this publication.
 
@@ -83,7 +87,9 @@ def _select_issue_file(
     matches = []
     for f in typed:
         parsed = _parse_file_entry(f["name"])
-        if parsed.identifier is not None and is_confident_match(parsed, publication_title, aliases):
+        if parsed.identifier is not None and is_confident_match(
+            parsed, publication_title, aliases, threshold
+        ):
             matches.append((f, parsed.identifier))
 
     if not matches:
@@ -106,14 +112,14 @@ def _import_file(source_path: Path, target_dir: Path, identifier: str, title: st
     return target_path
 
 
-def _downloads_root(torrent: dict) -> Path:
+def _downloads_root(torrent: dict, app_settings: AppSettings) -> Path:
     """The base directory to join a torrent's file names against. qBittorrent
     reports its own save_path, which is only directly usable if this process
     runs on the same host/filesystem; qbittorrent_downloads_local_path overrides
     it for a mounted/synced copy of that directory reachable at a different path.
     """
-    if settings.qbittorrent_downloads_local_path:
-        return Path(settings.qbittorrent_downloads_local_path)
+    if app_settings.qbittorrent_downloads_local_path:
+        return Path(app_settings.qbittorrent_downloads_local_path)
     return Path(torrent["save_path"])
 
 
@@ -161,7 +167,8 @@ def import_issue(
 
 
 def run_import_job(db: Session, qbt: QBittorrentClient) -> dict:
-    torrents = qbt.list_torrents(category=settings.qbittorrent_category)
+    app_settings = get_app_settings(db)
+    torrents = qbt.list_torrents(category=app_settings.qbittorrent_category)
 
     pending_grabs = (
         db.query(Grab)
@@ -187,7 +194,11 @@ def run_import_job(db: Session, qbt: QBittorrentClient) -> dict:
             continue
 
         main_file, other_matches = _select_issue_file(
-            files, publication.format_preference.value, publication.title, publication.aliases
+            files,
+            publication.format_preference.value,
+            publication.title,
+            publication.aliases,
+            app_settings.match_confidence_threshold,
         )
         if main_file is None:
             if other_matches:
@@ -213,11 +224,11 @@ def run_import_job(db: Session, qbt: QBittorrentClient) -> dict:
             flagged_for_review.append(grab.id)
             continue
 
-        source_path = _downloads_root(torrent) / main_file["name"]
+        source_path = _downloads_root(torrent, app_settings) / main_file["name"]
         parsed = _parse_file_entry(main_file["name"])
 
         confident = parsed.identifier is not None and is_confident_match(
-            parsed, publication.title, publication.aliases
+            parsed, publication.title, publication.aliases, app_settings.match_confidence_threshold
         )
         if not confident:
             _flag_for_review(db, grab, str(source_path), "low-confidence match on completed file")

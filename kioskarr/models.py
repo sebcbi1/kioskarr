@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, DateTime, Enum, Float, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from kioskarr.db import Base
@@ -102,3 +102,40 @@ class ReviewItem(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     grab: Mapped[Grab] = relationship()
+
+
+class AppSettings(Base):
+    """Singleton row (id is always 1) — every runtime-configurable setting except
+    database_url, which has to stay an env var since you need it to reach the DB
+    at all. Editable live via the Settings UI/API; see kioskarr.app_settings.
+    """
+
+    __tablename__ = "app_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    prowlarr_url: Mapped[str] = mapped_column(String, default="http://localhost:9696")
+    prowlarr_api_key: Mapped[str] = mapped_column(String, default="")
+
+    qbittorrent_url: Mapped[str] = mapped_column(String, default="http://localhost:8080")
+    qbittorrent_username: Mapped[str] = mapped_column(String, default="admin")
+    qbittorrent_password: Mapped[str] = mapped_column(String, default="")
+    qbittorrent_category: Mapped[str] = mapped_column(String, default="kioskarr")
+    qbittorrent_downloads_local_path: Mapped[str] = mapped_column(String, default="")
+
+    library_root: Mapped[str] = mapped_column(String, default="./library")
+
+    search_interval_hours: Mapped[float] = mapped_column(Float, default=4.0)
+    import_interval_minutes: Mapped[float] = mapped_column(Float, default=5.0)
+
+    default_min_seeders: Mapped[int] = mapped_column(Integer, default=1)
+    match_confidence_threshold: Mapped[float] = mapped_column(Float, default=75.0)
+
+    def require_prowlarr(self) -> None:
+        if not self.prowlarr_api_key:
+            raise RuntimeError("Prowlarr API key is not set — cannot search indexers.")
+
+    def require_download_client(self) -> None:
+        self.require_prowlarr()
+        if not self.qbittorrent_password:
+            raise RuntimeError("qBittorrent password is not set — cannot control downloads.")

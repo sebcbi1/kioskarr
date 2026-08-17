@@ -2,6 +2,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """Env-var-only bootstrap config. database_url is the sole setting that must
+    live here — you need it to reach the DB before you can query it for anything
+    else. Every other field below exists only to seed kioskarr.models.AppSettings
+    on first boot (see kioskarr.app_settings.ensure_app_settings_seeded); nothing
+    outside that seeding path should read them once the app has started.
+    """
+
     model_config = SettingsConfigDict(env_file=".env", env_prefix="KIOSKARR_")
 
     database_url: str = "sqlite:///./kioskarr.db"
@@ -13,11 +20,6 @@ class Settings(BaseSettings):
     qbittorrent_username: str = "admin"
     qbittorrent_password: str = ""
     qbittorrent_category: str = "kioskarr"
-    # Local filesystem path where qBittorrent's own save_path (as reported by its
-    # API) is actually reachable from this process — e.g. a mount of a remote
-    # download directory. When unset, the import job trusts the API's save_path
-    # directly, which only works if kioskarr runs on the same host/filesystem
-    # as qBittorrent.
     qbittorrent_downloads_local_path: str = ""
 
     library_root: str = "./library"
@@ -27,19 +29,6 @@ class Settings(BaseSettings):
 
     default_min_seeders: int = 1
     match_confidence_threshold: float = 75.0  # rapidfuzz score, 0-100
-
-    def require_prowlarr(self) -> None:
-        if not self.prowlarr_api_key:
-            raise RuntimeError(
-                "KIOSKARR_PROWLARR_API_KEY is not set — cannot search indexers."
-            )
-
-    def require_download_client(self) -> None:
-        self.require_prowlarr()
-        if not self.qbittorrent_password:
-            raise RuntimeError(
-                "KIOSKARR_QBITTORRENT_PASSWORD is not set — cannot control downloads."
-            )
 
 
 settings = Settings()

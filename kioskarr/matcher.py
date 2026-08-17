@@ -8,8 +8,9 @@ publication's title + user-supplied aliases (mirrors Mylar3's altname pattern).
 from rapidfuzz import fuzz
 from sqlalchemy.orm import Session
 
-from kioskarr.config import settings
 from kioskarr.parser import ParsedRelease, normalize
+
+DEFAULT_MATCH_CONFIDENCE_THRESHOLD = 75.0
 
 
 def title_match_score(parsed: ParsedRelease, publication_title: str, aliases: list[str]) -> float:
@@ -29,10 +30,9 @@ def is_confident_match(
     parsed: ParsedRelease,
     publication_title: str,
     aliases: list[str],
-    threshold: float | None = None,
+    threshold: float = DEFAULT_MATCH_CONFIDENCE_THRESHOLD,
 ) -> bool:
-    score = title_match_score(parsed, publication_title, aliases)
-    return score >= (threshold if threshold is not None else settings.match_confidence_threshold)
+    return title_match_score(parsed, publication_title, aliases) >= threshold
 
 
 def issue_already_owned(db_session: Session, publication_id: int, identifier: str) -> bool:

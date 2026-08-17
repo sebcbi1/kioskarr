@@ -27,17 +27,23 @@ source .venv/bin/activate       # fish shell: source .venv/bin/activate.fish
 pip install -e ".[dev]"
 ```
 
-Configure via environment variables (or a `.env` file), all prefixed `KIOSKARR_`:
+Configure via environment variables (or a `.env` file), all prefixed `KIOSKARR_`.
+**Only `KIOSKARR_DATABASE_URL` is read on an ongoing basis** — you need a DB
+connection before you can query it for anything else. Every other variable below
+is used once, to seed the DB-backed settings row the very first time the app boots
+against a fresh database; after that, edit them from the **Settings page** in the
+UI instead (see Frontend below) — changes there are saved to the database and take
+effect immediately, no restart or `.env` edit needed.
 
-| Variable | Default | Description |
+| Variable | Default | Seeds |
 |---|---|---|
-| `KIOSKARR_DATABASE_URL` | `sqlite:///./kioskarr.db` | SQLAlchemy DB URL |
+| `KIOSKARR_DATABASE_URL` | `sqlite:///./kioskarr.db` | *(always read from env — not a seed)* |
 | `KIOSKARR_PROWLARR_URL` | `http://localhost:9696` | Prowlarr base URL |
-| `KIOSKARR_PROWLARR_API_KEY` | *(required)* | Prowlarr API key |
+| `KIOSKARR_PROWLARR_API_KEY` | *(empty)* | Prowlarr API key |
 | `KIOSKARR_QBITTORRENT_URL` | `http://localhost:8080` | qBittorrent WebUI base URL |
 | `KIOSKARR_QBITTORRENT_USERNAME` | `admin` | qBittorrent WebUI username |
-| `KIOSKARR_QBITTORRENT_PASSWORD` | *(required)* | qBittorrent WebUI password |
-| `KIOSKARR_QBITTORRENT_DOWNLOADS_LOCAL_PATH` | *(unset)* | Local filesystem path where qBittorrent's own `save_path` is actually reachable from this process — e.g. a mount of a remote download directory. Required for import to work unless kioskarr runs on the same host/filesystem as qBittorrent; see Import below. |
+| `KIOSKARR_QBITTORRENT_PASSWORD` | *(empty)* | qBittorrent WebUI password |
+| `KIOSKARR_QBITTORRENT_DOWNLOADS_LOCAL_PATH` | *(empty)* | Local filesystem path where qBittorrent's own `save_path` is actually reachable from this process — e.g. a mount of a remote download directory. Needed for import to work unless kioskarr runs on the same host/filesystem as qBittorrent; see Import below. |
 | `KIOSKARR_LIBRARY_ROOT` | `./library` | Default library root (publications also set their own `target_dir`) |
 | `KIOSKARR_SEARCH_INTERVAL_HOURS` | `4` | How often to search for new issues |
 | `KIOSKARR_IMPORT_INTERVAL_MINUTES` | `5` | How often to check for completed downloads |
@@ -58,10 +64,23 @@ either activate it first (see Setup above) or call it directly without activatin
 .venv/bin/uvicorn kioskarr.api.main:app --reload
 ```
 
-This starts the API and the background scheduler (search + import jobs). Interactive
-API docs are at `http://localhost:8000/docs`. The app fails fast at startup with a
-clear error if `KIOSKARR_PROWLARR_API_KEY` or `KIOSKARR_QBITTORRENT_PASSWORD` is
-missing, rather than booting fine and failing silently later in the background scheduler.
+This starts the API, the UI (at `/`, which redirects to `/ui/publications`), and the
+background scheduler (search + import jobs). Interactive API docs are at
+`http://localhost:8000/docs`. The app always boots successfully even if Prowlarr/qBittorrent
+credentials aren't set yet — the Settings page has to be reachable to configure them in
+the first place. Scheduler ticks and the search-now/import-now actions each check for
+missing credentials individually and skip/report clearly instead.
+
+## Frontend
+
+Server-rendered pages (Jinja2 + a little vanilla JS — no separate build step), styled
+after Radarr/Sonarr's dark theme, deliberately without a calendar or cover art:
+
+- **`/ui/publications`** — list, add, edit, delete publications; toggle `monitored` in
+  place; trigger `search-now`; view/reset a publication's cold-start `baseline_identifier`.
+- **`/ui/review`** — the review queue, with an inline resolve form per item.
+- **`/ui/grabs`** — grab history, filterable by status.
+- **`/ui/settings`** — every setting below, editable and saved to the database live.
 
 ## API
 
@@ -85,6 +104,9 @@ missing, rather than booting fine and failing silently later in the background s
 - `GET /search/preview?query=...` — read-only: hits Prowlarr and shows what the parser/matcher
   would see for a query, without grabbing anything or writing to the database. Useful for
   checking indexer coverage and parse quality for a title before adding it as a publication.
+- `GET /settings`, `PATCH /settings` — read/update every DB-backed setting (Prowlarr and
+  qBittorrent connection details included). Changing `search_interval_hours` or
+  `import_interval_minutes` reschedules the background jobs immediately.
 
 ### Cold start (avoiding a back-catalog dump on day one)
 
@@ -186,7 +208,6 @@ Prowlarr/qBittorrent instance.
 - A release spanning two calendar days (a combined weekend edition, e.g. "Du 9 10 Mai
   2026") is assigned the identifier of the later day only — there's no clean single-identifier
   representation for a two-day span. Hasn't caused a real collision in testing so far.
-- No frontend UI yet — operate the review queue via the API/docs.
 - Matching is heuristic (regex + fuzzy title score), not lookup-based — expect some false
   positives/negatives; that's what the review queue is for.
 

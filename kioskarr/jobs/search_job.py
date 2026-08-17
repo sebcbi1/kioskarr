@@ -17,10 +17,10 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from kioskarr.config import settings
+from kioskarr.app_settings import get_app_settings
 from kioskarr.jobs.import_job import _select_issue_file
 from kioskarr.matcher import is_confident_match, issue_already_owned
-from kioskarr.models import Grab, GrabStatus, Publication, ReviewItem
+from kioskarr.models import AppSettings, Grab, GrabStatus, Publication, ReviewItem
 from kioskarr.parser import ParsedRelease, identifier_sort_key, is_identifier_newer, parse
 from kioskarr.prowlarr_client import ProwlarrClient, Release
 from kioskarr.qbittorrent_client import QBittorrentClient
@@ -55,7 +55,9 @@ def _already_in_flight(db: Session, publication_id: int, identifier: str) -> boo
     )
 
 
-def _restrict_to_matched_file(qbt: QBittorrentClient, torrent_hash: str, publication: Publication) -> None:
+def _restrict_to_matched_file(
+    qbt: QBittorrentClient, torrent_hash: str, publication: Publication, threshold: float
+) -> None:
     """Skip downloading files we don't want at all, rather than downloading
     everything and sorting it out at import time — worth doing whenever the
     torrent bundles more than one file, since a real "national newspapers"
@@ -75,7 +77,7 @@ def _restrict_to_matched_file(qbt: QBittorrentClient, torrent_hash: str, publica
         return  # nothing to restrict
 
     chosen, others = _select_issue_file(
-        files, publication.format_preference.value, publication.title, publication.aliases
+        files, publication.format_preference.value, publication.title, publication.aliases, threshold
     )
     if chosen is None or others:
         return  # ambiguous, or nothing confidently matched — leave it to import-time review
@@ -90,15 +92,17 @@ def _restrict_to_matched_file(qbt: QBittorrentClient, torrent_hash: str, publica
 
 
 def _eligible_candidates(
-    db: Session, publication: Publication, candidates: list[Release]
+    db: Session, publication: Publication, candidates: list[Release], app_settings: AppSettings
 ) -> list[tuple[Release, ParsedRelease]]:
     eligible = []
-    min_seeders = publication.min_seeders or settings.default_min_seeders
+    min_seeders = publication.min_seeders or app_settings.default_min_seeders
     for release in candidates:
         parsed = parse(release.title)
         if parsed.identifier is None:
             continue  # can't safely dedupe (or order) without an identifier
-        if not is_confident_match(parsed, publication.title, publication.aliases):
+        if not is_confident_match(
+            parsed, publication.title, publication.aliases, app_settings.match_confidence_threshold
+        ):
             continue
         if issue_already_owned(db, publication.id, parsed.identifier):
             continue
@@ -144,6 +148,7 @@ def run_search_job(
     qbt: QBittorrentClient,
     publications: list[Publication] | None = None,
 ) -> list[Grab]:
+    app_settings = get_app_settings(db)
     targets = publications if publications is not None else (
         db.query(Publication).filter(Publication.monitored.is_(True)).all()
     )
@@ -173,7 +178,7 @@ def run_search_job(
                     seen_guids.add(release.guid)
                 candidates.append(release)
 
-        eligible = _eligible_candidates(db, publication, candidates)
+        eligible = _eligible_candidates(db, publication, candidates, app_settings)
         eligible = _best_per_identifier(eligible, indexer_priorities)
 
         if publication.baseline_identifier is None:
@@ -197,7 +202,7 @@ def run_search_job(
             else:
                 try:
                     returned_hash = qbt.add_torrent(
-                        release.download_url, category=settings.qbittorrent_category
+                        release.download_url, category=app_settings.qbittorrent_category
                     )
                 except Exception:
                     logger.exception(
@@ -220,7 +225,9 @@ def run_search_job(
             status = GrabStatus.downloading if torrent_hash else GrabStatus.needs_review
 
             if torrent_hash:
-                _restrict_to_matched_file(qbt, torrent_hash, publication)
+                _restrict_to_matched_file(
+                    qbt, torrent_hash, publication, app_settings.match_confidence_threshold
+                )
 
             grab = Grab(
                 publication_id=publication.id,

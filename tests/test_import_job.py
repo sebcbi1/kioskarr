@@ -2,6 +2,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from kioskarr.app_settings import ensure_app_settings_seeded
 from kioskarr.db import Base
 from kioskarr.jobs.import_job import _parse_file_entry, _select_issue_file, run_import_job
 from kioskarr.models import FormatPreference, Grab, GrabStatus, Publication, PublicationType, ReviewItem
@@ -12,6 +13,7 @@ def db_session():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as session:
+        ensure_app_settings_seeded(session)
         yield session
 
 

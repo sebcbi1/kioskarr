@@ -4,10 +4,12 @@ indexer coverage and parsing quality for a title before adding it as a Publicati
 """
 
 import requests
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
-from kioskarr.config import settings
+from kioskarr.app_settings import get_app_settings
+from kioskarr.db import get_db
 from kioskarr.jobs.search_job import search_with_fallback
 from kioskarr.parser import parse
 from kioskarr.prowlarr_client import ProwlarrClient
@@ -31,13 +33,14 @@ class ReleasePreview(BaseModel):
 
 
 @router.get("/preview", response_model=list[ReleasePreview])
-def preview_search(query: str) -> list[ReleasePreview]:
+def preview_search(query: str, db: Session = Depends(get_db)) -> list[ReleasePreview]:
+    app_settings = get_app_settings(db)
     try:
-        settings.require_prowlarr()
+        app_settings.require_prowlarr()
     except RuntimeError as exc:
         raise HTTPException(400, str(exc)) from exc
 
-    prowlarr = ProwlarrClient(settings.prowlarr_url, settings.prowlarr_api_key)
+    prowlarr = ProwlarrClient(app_settings.prowlarr_url, app_settings.prowlarr_api_key)
     try:
         releases = search_with_fallback(prowlarr, query)
     except requests.RequestException as exc:

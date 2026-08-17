@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Kioskarr{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app">
+    <nav class="sidebar">
+      <div class="brand">Kioskarr</div>
+      <a class="nav-link {{ 'active' if active_nav == 'publications' else '' }}" href="/ui/publications">Publications</a>
+      <a class="nav-link {{ 'active' if active_nav == 'review' else '' }}" href="/ui/review">Review Queue</a>
+      <a class="nav-link {{ 'active' if active_nav == 'grabs' else '' }}" href="/ui/grabs">Grabs</a>
+      <a class="nav-link {{ 'active' if active_nav == 'settings' else '' }}" href="/ui/settings">Settings</a>
+    </nav>
+    <main class="content">
+      {% if flash %}
+      <div class="flash flash-{{ flash_type or 'success' }}">{{ flash }}</div>
+      {% endif %}
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

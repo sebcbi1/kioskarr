@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Review Queue — Kioskarr{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1>Review Queue</h1>
+</div>
+
+{% if items %}
+{% for item in items %}
+<div class="review-item">
+  <div class="reason">{{ item.reason }}</div>
+  {% if item.file_path %}
+  <div class="file-path mono">{{ item.file_path }}</div>
+  {% endif %}
+  <div class="text-dim" style="font-size: 12px; margin-bottom: 12px;">
+    Release: <span class="mono">{{ item.grab.release_title }}</span>
+  </div>
+  <form method="post" action="/ui/review/{{ item.id }}/resolve">
+    <div class="field">
+      <label>Publication</label>
+      <select name="publication_id" required>
+        <option value="" disabled {{ 'selected' if not item.candidate_publication_id else '' }}>Choose…</option>
+        {% for pub in publications %}
+        <option value="{{ pub.id }}" {{ 'selected' if item.candidate_publication_id == pub.id else '' }}>{{ pub.title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label>Identifier</label>
+      <input type="text" name="identifier" required placeholder="e.g. 2026-08-13 or issue-42" />
+    </div>
+    <div class="field">
+      <label>File path override <span class="hint">optional — only needed if the recorded path is missing or wrong</span></label>
+      <input type="text" name="file_path" placeholder="{{ item.file_path or '/path/to/file.pdf' }}" />
+    </div>
+    <button type="submit" class="btn btn-primary">Resolve</button>
+  </form>
+</div>
+{% endfor %}
+{% else %}
+<div class="empty-state">Nothing needs review right now.</div>
+{% endif %}
+{% endblock %}

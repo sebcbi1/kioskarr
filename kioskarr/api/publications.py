@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from kioskarr.config import settings
+from kioskarr.app_settings import get_app_settings
 from kioskarr.db import get_db
 from kioskarr.jobs.search_job import run_search_job
 from kioskarr.models import FormatPreference, Publication, PublicationType
@@ -103,13 +103,14 @@ def search_now(publication_id: int, db: Session = Depends(get_db)) -> dict:
     if publication is None:
         raise HTTPException(404, "Publication not found")
 
-    settings.require_download_client()
-    prowlarr = ProwlarrClient(settings.prowlarr_url, settings.prowlarr_api_key)
+    app_settings = get_app_settings(db)
+    app_settings.require_download_client()
+    prowlarr = ProwlarrClient(app_settings.prowlarr_url, app_settings.prowlarr_api_key)
     qbt = QBittorrentClient(
-        settings.qbittorrent_url, settings.qbittorrent_username, settings.qbittorrent_password
+        app_settings.qbittorrent_url, app_settings.qbittorrent_username, app_settings.qbittorrent_password
     )
     qbt.login()
-    qbt.ensure_category(settings.qbittorrent_category)
+    qbt.ensure_category(app_settings.qbittorrent_category)
 
     grabs = run_search_job(db, prowlarr, qbt, publications=[publication])
     return {"grabbed": len(grabs), "releases": [g.release_title for g in grabs]}
