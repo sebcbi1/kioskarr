@@ -71,6 +71,36 @@ Settings page has to be reachable to configure them in the first place. Schedule
 the search-now/import-now actions each check for missing credentials individually and
 skip/report clearly instead.
 
+## Docker
+
+Covers Kioskarr only — Prowlarr and qBittorrent are expected to already be running
+somewhere reachable from the container, same as running it directly (see Prerequisites).
+
+```bash
+docker compose up -d --build
+```
+
+This builds the image, then bind-mounts three host directories next to
+`docker-compose.yml` (created automatically if missing):
+
+- `./data` → `/data` — holds `kioskarr.db`. **This is the one directory that actually
+  matters to back up.**
+- `./library` → `/library` — the shared library root; set each publication's
+  `target_dir` to a subfolder of this from the UI (e.g. `/library/ouest-france`).
+- `./qbit-downloads` → `/downloads` (read-only) — only needed if qBittorrent runs on a
+  different host/filesystem than this container; point it at wherever qBittorrent's
+  `save_path` is actually reachable from here (see Import below). Bind-mount it from
+  the *same underlying filesystem* as `./library` if you want hardlinking (no extra
+  disk space, keeps seeding) to actually succeed instead of falling back to a copy.
+
+`KIOSKARR_PROWLARR_URL`/`KIOSKARR_QBITTORRENT_URL` default to
+`http://host.docker.internal:9696`/`:8080` (works out of the box on Docker Desktop; the
+`extra_hosts` entry in `docker-compose.yml` is what makes `host.docker.internal` resolve
+on Linux too) — override them in the environment if Prowlarr/qBittorrent run elsewhere.
+Everything else (API keys, passwords, intervals) is a one-time seed exactly as described
+in Setup above — configure the rest from the Settings page after first boot rather than
+baking secrets into `docker-compose.yml`.
+
 ## Frontend
 
 A single-page app (`kioskarr/static/index.html` + `app.js`) using [Alpine.js](https://alpinejs.dev/)

@@ -1,0 +1,28 @@
+services:
+  kioskarr:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # DB lives here — this is the one directory that actually matters to back up.
+      - ./data:/data
+      # Shared library root; publications' target_dir should be subfolders of this
+      # (e.g. /library/ouest-france), set from the Settings/Publications UI.
+      - ./library:/library
+      # qBittorrent's own download directory, read-only — only needed if Kioskarr
+      # runs on a different host/filesystem than qBittorrent. Point this at wherever
+      # qBittorrent's `save_path` is actually reachable from here.
+      - ./qbit-downloads:/downloads:ro
+    environment:
+      KIOSKARR_DATABASE_URL: sqlite:////data/kioskarr.db
+      KIOSKARR_LIBRARY_ROOT: /library
+      KIOSKARR_QBITTORRENT_DOWNLOADS_LOCAL_PATH: /downloads
+      # Seed values only (see README) — Prowlarr/qBittorrent are expected to already
+      # be running somewhere reachable from this container, not part of this compose
+      # file. host.docker.internal works out of the box on Docker Desktop; the
+      # extra_hosts entry below is what makes it resolve on Linux too.
+      KIOSKARR_PROWLARR_URL: ${KIOSKARR_PROWLARR_URL:-http://host.docker.internal:9696}
+      KIOSKARR_QBITTORRENT_URL: ${KIOSKARR_QBITTORRENT_URL:-http://host.docker.internal:8080}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
