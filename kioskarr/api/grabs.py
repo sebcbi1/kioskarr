@@ -11,6 +11,7 @@ router = APIRouter(prefix="/grabs", tags=["grabs"])
 class GrabOut(BaseModel):
     id: int
     publication_id: int
+    publication_title: str
     release_title: str
     identifier: str
     status: GrabStatus
@@ -21,8 +22,21 @@ class GrabOut(BaseModel):
 
 
 @router.get("", response_model=list[GrabOut])
-def list_grabs(status: GrabStatus | None = None, db: Session = Depends(get_db)) -> list[Grab]:
+def list_grabs(status: GrabStatus | None = None, db: Session = Depends(get_db)) -> list[GrabOut]:
     query = db.query(Grab)
     if status is not None:
         query = query.filter(Grab.status == status)
-    return query.order_by(Grab.created_at.desc()).all()
+    grabs = query.order_by(Grab.created_at.desc()).all()
+    return [
+        GrabOut(
+            id=grab.id,
+            publication_id=grab.publication_id,
+            publication_title=grab.publication.title,
+            release_title=grab.release_title,
+            identifier=grab.identifier,
+            status=grab.status,
+            torrent_hash=grab.torrent_hash,
+            indexer_id=grab.indexer_id,
+        )
+        for grab in grabs
+    ]

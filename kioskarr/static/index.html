@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kioskarr</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script defer src="/static/vendor/alpine.min.js"></script>
+</head>
+<body>
+  <div class="app" x-data="app()">
+    <nav class="sidebar">
+      <div class="brand">Kioskarr</div>
+      <a class="nav-link" :class="{ active: route.name === 'publications' || route.name === 'publication-form' }" href="#/publications">Publications</a>
+      <a class="nav-link" :class="{ active: route.name === 'review' }" href="#/review">Review Queue</a>
+      <a class="nav-link" :class="{ active: route.name === 'grabs' }" href="#/grabs">Grabs</a>
+      <a class="nav-link" :class="{ active: route.name === 'settings' }" href="#/settings">Settings</a>
+    </nav>
+    <main class="content">
+      <div class="toast" :class="'toast-' + toast.type" x-show="toast.message" x-transition x-text="toast.message" style="display: none;"></div>
+
+      <!-- Publications list -->
+      <template x-if="route.name === 'publications'">
+        <div>
+          <div class="page-header">
+            <h1>Publications</h1>
+            <a class="btn btn-primary" href="#/publications/new">+ Add Publication</a>
+          </div>
+          <template x-if="publications.length === 0">
+            <div class="empty-state">No publications yet. Add one to start monitoring.</div>
+          </template>
+          <table x-show="publications.length > 0">
+            <thead>
+              <tr>
+                <th>Title</th><th>Type</th><th>Monitored</th><th>Format</th><th>Min Seeders</th><th>Target Dir</th><th>Baseline</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="pub in publications" :key="pub.id">
+                <tr>
+                  <td x-text="pub.title"></td>
+                  <td x-text="pub.type"></td>
+                  <td>
+                    <label class="toggle">
+                      <input type="checkbox" :checked="pub.monitored" @change="toggleMonitored(pub)" />
+                      <span class="toggle-slider"></span>
+                    </label>
+                  </td>
+                  <td x-text="pub.format_preference"></td>
+                  <td x-text="pub.min_seeders"></td>
+                  <td class="mono" x-text="pub.target_dir"></td>
+                  <td class="mono text-dim" x-text="pub.baseline_identifier || '—'"></td>
+                  <td class="actions">
+                    <button type="button" class="btn btn-sm" @click="searchNow(pub)">Search Now</button>
+                    <a class="btn btn-sm" :href="'#/publications/' + pub.id + '/edit'">Edit</a>
+                    <button type="button" class="btn btn-sm btn-danger" @click="deletePublication(pub)">Delete</button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </template>
+
+      <!-- Publication form (create + edit) -->
+      <template x-if="route.name === 'publication-form'">
+        <div>
+          <div class="page-header">
+            <h1 x-text="form.id ? 'Edit Publication' : 'Add Publication'"></h1>
+          </div>
+          <div class="form-panel">
+            <form @submit.prevent="savePublication">
+              <div class="field">
+                <label>Title</label>
+                <input type="text" x-model="form.title" required />
+              </div>
+              <template x-if="!form.id">
+                <div class="field">
+                  <label>Type</label>
+                  <select x-model="form.type">
+                    <option value="magazine">magazine</option>
+                    <option value="newspaper">newspaper</option>
+                  </select>
+                </div>
+              </template>
+              <div class="field">
+                <label>Aliases</label>
+                <div id="alias-rows">
+                  <template x-for="(alias, index) in form.aliases" :key="index">
+                    <div class="alias-row">
+                      <input type="text" x-model="form.aliases[index]" />
+                      <button type="button" class="btn btn-sm btn-danger" @click="removeAliasRow(index)">Remove</button>
+                    </div>
+                  </template>
+                </div>
+                <button type="button" class="btn btn-sm" @click="addAliasRow()">+ Add alias</button>
+              </div>
+              <div class="field">
+                <label>Format preference</label>
+                <select x-model="form.format_preference">
+                  <option value="pdf">pdf</option>
+                  <option value="cbr">cbr</option>
+                  <option value="any">any</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Minimum seeders</label>
+                <input type="number" min="0" x-model.number="form.min_seeders" />
+              </div>
+              <div class="field">
+                <label>Target directory</label>
+                <input type="text" x-model="form.target_dir" required />
+              </div>
+              <div class="field">
+                <label>Grab last N (cold start)</label>
+                <input type="number" min="1" x-model.number="form.grab_last_n" />
+              </div>
+              <div class="checkbox-field field">
+                <input type="checkbox" id="monitored" x-model="form.monitored" />
+                <label for="monitored">Monitored</label>
+              </div>
+
+              <template x-if="form.id">
+                <div>
+                  <div class="form-section-title">Cold-start floor</div>
+                  <div class="baseline-box">
+                    <span>Baseline: <span class="mono" x-text="form.baseline_identifier || 'not yet initialized'"></span></span>
+                    <button type="button" class="btn btn-sm" x-show="form.baseline_identifier" @click="resetBaseline()">Reset</button>
+                  </div>
+                </div>
+              </template>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary" x-text="form.id ? 'Save' : 'Add Publication'"></button>
+                <a class="btn" href="#/publications">Cancel</a>
+              </div>
+            </form>
+          </div>
+        </div>
+      </template>
+
+      <!-- Review queue -->
+      <template x-if="route.name === 'review'">
+        <div>
+          <div class="page-header"><h1>Review Queue</h1></div>
+          <template x-if="reviewItems.length === 0">
+            <div class="empty-state">Nothing needs review right now.</div>
+          </template>
+          <template x-for="item in reviewItems" :key="item.id">
+            <div class="review-item">
+              <div class="reason" x-text="item.reason"></div>
+              <div class="mono text-dim" x-text="item.release_title"></div>
+              <div class="file-path" x-show="item.file_path" x-text="item.file_path"></div>
+              <form @submit.prevent="resolveReviewItem(item)">
+                <div class="field">
+                  <label>Publication</label>
+                  <select x-model="item._publicationId" required>
+                    <option value="" disabled>Choose…</option>
+                    <template x-for="pub in publications" :key="pub.id">
+                      <option :value="pub.id" x-text="pub.title"></option>
+                    </template>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Identifier</label>
+                  <input type="text" x-model="item._identifier" placeholder="e.g. 2026-08-13 or issue-42" required />
+                </div>
+                <div class="field">
+                  <label>File path override</label>
+                  <input type="text" x-model="item._filePath" placeholder="optional — leave blank to use recorded path" />
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">Resolve</button>
+              </form>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- Grabs history -->
+      <template x-if="route.name === 'grabs'">
+        <div>
+          <div class="page-header"><h1>Grabs</h1></div>
+          <div class="filter-bar">
+            <select x-model="grabStatusFilter" @change="loadGrabs()">
+              <option value="">All statuses</option>
+              <option value="downloading">downloading</option>
+              <option value="completed">completed</option>
+              <option value="imported">imported</option>
+              <option value="needs_review">needs_review</option>
+              <option value="failed">failed</option>
+            </select>
+          </div>
+          <template x-if="grabs.length === 0">
+            <div class="empty-state">No grabs yet.</div>
+          </template>
+          <table x-show="grabs.length > 0">
+            <thead>
+              <tr><th>Publication</th><th>Release</th><th>Identifier</th><th>Status</th><th>Indexer</th></tr>
+            </thead>
+            <tbody>
+              <template x-for="grab in grabs" :key="grab.id">
+                <tr>
+                  <td x-text="grab.publication_title"></td>
+                  <td class="mono" x-text="grab.release_title"></td>
+                  <td class="mono" x-text="grab.identifier"></td>
+                  <td><span class="badge" :class="'badge-' + grab.status" x-text="grab.status"></span></td>
+                  <td class="text-dim" x-text="grab.indexer_id || '—'"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </template>
+
+      <!-- Settings -->
+      <template x-if="route.name === 'settings' && settings">
+        <div>
+          <div class="page-header"><h1>Settings</h1></div>
+          <div class="form-panel">
+            <form @submit.prevent="saveSettings">
+              <div class="form-section-title">Prowlarr</div>
+              <div class="field"><label>URL</label><input type="url" x-model="settings.prowlarr_url" required /></div>
+              <div class="field"><label>API key</label><input type="password" x-model="settings.prowlarr_api_key" /></div>
+
+              <div class="form-section-title">qBittorrent</div>
+              <div class="field"><label>URL</label><input type="url" x-model="settings.qbittorrent_url" required /></div>
+              <div class="field"><label>Username</label><input type="text" x-model="settings.qbittorrent_username" /></div>
+              <div class="field"><label>Password</label><input type="password" x-model="settings.qbittorrent_password" /></div>
+              <div class="field"><label>Category</label><input type="text" x-model="settings.qbittorrent_category" /></div>
+              <div class="field">
+                <label>Downloads local path</label>
+                <input type="text" x-model="settings.qbittorrent_downloads_local_path" />
+                <span class="hint">Local filesystem path where qBittorrent's save_path is reachable, if different (e.g. a mounted remote path).</span>
+              </div>
+
+              <div class="form-section-title">Matching &amp; timing</div>
+              <div class="field"><label>Search interval (hours)</label><input type="number" step="0.1" min="0.1" x-model.number="settings.search_interval_hours" /></div>
+              <div class="field"><label>Import interval (minutes)</label><input type="number" step="0.1" min="0.1" x-model.number="settings.import_interval_minutes" /></div>
+              <div class="field"><label>Default min seeders</label><input type="number" min="0" x-model.number="settings.default_min_seeders" /></div>
+              <div class="field"><label>Match confidence threshold</label><input type="number" step="1" min="0" max="100" x-model.number="settings.match_confidence_threshold" /></div>
+
+              <div class="form-section-title">Library</div>
+              <div class="field"><label>Library root</label><input type="text" x-model="settings.library_root" /></div>
+
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Save Settings</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </template>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

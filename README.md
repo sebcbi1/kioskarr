@@ -64,23 +64,26 @@ either activate it first (see Setup above) or call it directly without activatin
 .venv/bin/uvicorn kioskarr.api.main:app --reload
 ```
 
-This starts the API, the UI (at `/`, which redirects to `/ui/publications`), and the
-background scheduler (search + import jobs). Interactive API docs are at
-`http://localhost:8000/docs`. The app always boots successfully even if Prowlarr/qBittorrent
-credentials aren't set yet — the Settings page has to be reachable to configure them in
-the first place. Scheduler ticks and the search-now/import-now actions each check for
-missing credentials individually and skip/report clearly instead.
+This starts the API, the single-page UI (served at `/`), and the background scheduler
+(search + import jobs). Interactive API docs are at `http://localhost:8000/docs`. The app
+always boots successfully even if Prowlarr/qBittorrent credentials aren't set yet — the
+Settings page has to be reachable to configure them in the first place. Scheduler ticks and
+the search-now/import-now actions each check for missing credentials individually and
+skip/report clearly instead.
 
 ## Frontend
 
-Server-rendered pages (Jinja2 + a little vanilla JS — no separate build step), styled
-after Radarr/Sonarr's dark theme, deliberately without a calendar or cover art:
+A single-page app (`kioskarr/static/index.html` + `app.js`) using [Alpine.js](https://alpinejs.dev/)
+(vendored locally at `kioskarr/static/vendor/alpine.min.js` — no CDN dependency, no build step,
+no bundler). It calls the JSON API below directly
+via `fetch()` and routes client-side via the URL hash (`#/publications`, `#/review`, `#/grabs`,
+`#/settings`), styled after Radarr/Sonarr's dark theme, deliberately without a calendar or cover art:
 
-- **`/ui/publications`** — list, add, edit, delete publications; toggle `monitored` in
-  place; trigger `search-now`; view/reset a publication's cold-start `baseline_identifier`.
-- **`/ui/review`** — the review queue, with an inline resolve form per item.
-- **`/ui/grabs`** — grab history, filterable by status.
-- **`/ui/settings`** — every setting below, editable and saved to the database live.
+- **Publications** — list, add, edit, delete publications; toggle `monitored` in place;
+  trigger `search-now`; view/reset a publication's cold-start `baseline_identifier`.
+- **Review Queue** — the review queue, with an inline resolve form per item.
+- **Grabs** — grab history, filterable by status.
+- **Settings** — every setting below, editable and saved to the database live.
 
 ## API
 

@@ -1,19 +1,17 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from kioskarr.api import grabs, jobs, publications, review, search, settings as settings_api
 from kioskarr.app_settings import ensure_app_settings_seeded
 from kioskarr.db import SessionLocal, init_db
 from kioskarr.scheduler import start_scheduler, stop_scheduler
-from kioskarr.templating import STATIC_DIR
-from kioskarr.ui import grabs as ui_grabs
-from kioskarr.ui import publications as ui_publications
-from kioskarr.ui import review as ui_review
-from kioskarr.ui import settings as ui_settings
+
+STATIC_DIR = Path(__file__).parent.parent / "static"
 
 # Without this, every logger.info/warning/exception call anywhere in the app
 # (scheduler ticks, failed grabs, duplicate detection, etc.) is silently
@@ -47,11 +45,19 @@ app.include_router(search.router)
 app.include_router(jobs.router)
 app.include_router(settings_api.router)
 
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-app.include_router(ui_publications.router)
-app.include_router(ui_review.router)
-app.include_router(ui_grabs.router)
-app.include_router(ui_settings.router)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+# The SPA has no build step / cache-busted filenames, so without this browsers
+# can keep serving a stale index.html/app.js/style.css from disk cache after an
+# upgrade (confirmed live during development — editing these files had no
+# visible effect until the browser was forced to refetch them).
+@app.middleware("http")
+async def no_cache_for_frontend_assets(request, call_next):
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/health")
@@ -60,5 +66,5 @@ def health() -> dict:
 
 
 @app.get("/")
-def root() -> RedirectResponse:
-    return RedirectResponse(url="/ui/publications")
+def root() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
