@@ -1,4 +1,4 @@
-# Magazinerr
+# Kioskarr
 
 A Radarr/Sonarr-style monitor for magazine (and best-effort newspaper) issues:
 watch a list of publications, periodically search indexers for new issues,
@@ -12,11 +12,11 @@ back. Low-confidence matches land in a review queue rather than being guessed.
 
 ## Prerequisites
 
-Magazinerr does not reimplement indexer scraping or torrent downloading — it
+Kioskarr does not reimplement indexer scraping or torrent downloading — it
 expects two other services already running, the same as any Servarr app:
 
 - **[Prowlarr](https://github.com/Prowlarr/Prowlarr)** — indexer aggregation. Configure
-  your Torznab/Newznab indexers there; Magazinerr calls Prowlarr's search API.
+  your Torznab/Newznab indexers there; Kioskarr calls Prowlarr's search API.
 - **[qBittorrent](https://www.qbittorrent.org/)** with the WebUI enabled — download client.
 
 ## Setup
@@ -27,40 +27,40 @@ source .venv/bin/activate       # fish shell: source .venv/bin/activate.fish
 pip install -e ".[dev]"
 ```
 
-Configure via environment variables (or a `.env` file), all prefixed `MAGAZINERR_`:
+Configure via environment variables (or a `.env` file), all prefixed `KIOSKARR_`:
 
 | Variable | Default | Description |
 |---|---|---|
-| `MAGAZINERR_DATABASE_URL` | `sqlite:///./magazinerr.db` | SQLAlchemy DB URL |
-| `MAGAZINERR_PROWLARR_URL` | `http://localhost:9696` | Prowlarr base URL |
-| `MAGAZINERR_PROWLARR_API_KEY` | *(required)* | Prowlarr API key |
-| `MAGAZINERR_QBITTORRENT_URL` | `http://localhost:8080` | qBittorrent WebUI base URL |
-| `MAGAZINERR_QBITTORRENT_USERNAME` | `admin` | qBittorrent WebUI username |
-| `MAGAZINERR_QBITTORRENT_PASSWORD` | *(required)* | qBittorrent WebUI password |
-| `MAGAZINERR_QBITTORRENT_DOWNLOADS_LOCAL_PATH` | *(unset)* | Local filesystem path where qBittorrent's own `save_path` is actually reachable from this process — e.g. a mount of a remote download directory. Required for import to work unless magazinerr runs on the same host/filesystem as qBittorrent; see Import below. |
-| `MAGAZINERR_LIBRARY_ROOT` | `./library` | Default library root (publications also set their own `target_dir`) |
-| `MAGAZINERR_SEARCH_INTERVAL_HOURS` | `4` | How often to search for new issues |
-| `MAGAZINERR_IMPORT_INTERVAL_MINUTES` | `5` | How often to check for completed downloads |
-| `MAGAZINERR_MATCH_CONFIDENCE_THRESHOLD` | `75` | Fuzzy title-match score (0-100) required to auto-import |
+| `KIOSKARR_DATABASE_URL` | `sqlite:///./kioskarr.db` | SQLAlchemy DB URL |
+| `KIOSKARR_PROWLARR_URL` | `http://localhost:9696` | Prowlarr base URL |
+| `KIOSKARR_PROWLARR_API_KEY` | *(required)* | Prowlarr API key |
+| `KIOSKARR_QBITTORRENT_URL` | `http://localhost:8080` | qBittorrent WebUI base URL |
+| `KIOSKARR_QBITTORRENT_USERNAME` | `admin` | qBittorrent WebUI username |
+| `KIOSKARR_QBITTORRENT_PASSWORD` | *(required)* | qBittorrent WebUI password |
+| `KIOSKARR_QBITTORRENT_DOWNLOADS_LOCAL_PATH` | *(unset)* | Local filesystem path where qBittorrent's own `save_path` is actually reachable from this process — e.g. a mount of a remote download directory. Required for import to work unless kioskarr runs on the same host/filesystem as qBittorrent; see Import below. |
+| `KIOSKARR_LIBRARY_ROOT` | `./library` | Default library root (publications also set their own `target_dir`) |
+| `KIOSKARR_SEARCH_INTERVAL_HOURS` | `4` | How often to search for new issues |
+| `KIOSKARR_IMPORT_INTERVAL_MINUTES` | `5` | How often to check for completed downloads |
+| `KIOSKARR_MATCH_CONFIDENCE_THRESHOLD` | `75` | Fuzzy title-match score (0-100) required to auto-import |
 
 ## Run
 
 With the venv activated:
 
 ```bash
-uvicorn magazinerr.api.main:app --reload
+uvicorn kioskarr.api.main:app --reload
 ```
 
 If `uvicorn` isn't found, the venv likely isn't activated in your current shell —
 either activate it first (see Setup above) or call it directly without activating:
 
 ```bash
-.venv/bin/uvicorn magazinerr.api.main:app --reload
+.venv/bin/uvicorn kioskarr.api.main:app --reload
 ```
 
 This starts the API and the background scheduler (search + import jobs). Interactive
 API docs are at `http://localhost:8000/docs`. The app fails fast at startup with a
-clear error if `MAGAZINERR_PROWLARR_API_KEY` or `MAGAZINERR_QBITTORRENT_PASSWORD` is
+clear error if `KIOSKARR_PROWLARR_API_KEY` or `KIOSKARR_QBITTORRENT_PASSWORD` is
 missing, rather than booting fine and failing silently later in the background scheduler.
 
 ## API
@@ -122,7 +122,7 @@ The import job reads the completed file directly off disk — `torrent["save_pat
 the publication's `target_dir`. That only works if this process can actually see
 qBittorrent's download directory on its own filesystem. If qBittorrent runs elsewhere
 (a different host, a NAS, etc.) and you've mounted its download directory locally at a
-different path, set `MAGAZINERR_QBITTORRENT_DOWNLOADS_LOCAL_PATH` to that local path —
+different path, set `KIOSKARR_QBITTORRENT_DOWNLOADS_LOCAL_PATH` to that local path —
 import will use it instead of trusting the API's `save_path` directly. Hardlinking
 (no extra disk space, keeps seeding) only succeeds if `target_dir` is on the *same*
 filesystem as that downloads path; otherwise it falls back to a plain copy automatically.

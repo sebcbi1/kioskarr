@@ -4,12 +4,12 @@ state started/stopped from the FastAPI app lifespan.
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from magazinerr.config import settings
-from magazinerr.db import SessionLocal
-from magazinerr.jobs.import_job import run_import_job
-from magazinerr.jobs.search_job import run_search_job
-from magazinerr.prowlarr_client import ProwlarrClient
-from magazinerr.qbittorrent_client import QBittorrentClient
+from kioskarr.config import settings
+from kioskarr.db import SessionLocal
+from kioskarr.jobs.import_job import run_import_job
+from kioskarr.jobs.search_job import run_search_job
+from kioskarr.prowlarr_client import ProwlarrClient
+from kioskarr.qbittorrent_client import QBittorrentClient
 
 _scheduler: BackgroundScheduler | None = None
 

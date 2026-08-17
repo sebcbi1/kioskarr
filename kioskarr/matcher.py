@@ -8,8 +8,8 @@ publication's title + user-supplied aliases (mirrors Mylar3's altname pattern).
 from rapidfuzz import fuzz
 from sqlalchemy.orm import Session
 
-from magazinerr.config import settings
-from magazinerr.parser import ParsedRelease, normalize
+from kioskarr.config import settings
+from kioskarr.parser import ParsedRelease, normalize
 
 
 def title_match_score(parsed: ParsedRelease, publication_title: str, aliases: list[str]) -> float:
@@ -36,7 +36,7 @@ def is_confident_match(
 
 
 def issue_already_owned(db_session: Session, publication_id: int, identifier: str) -> bool:
-    from magazinerr.models import Issue
+    from kioskarr.models import Issue
 
     return (
         db_session.query(Issue)

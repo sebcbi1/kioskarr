@@ -4,9 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from magazinerr.db import get_db
-from magazinerr.jobs.import_job import import_issue
-from magazinerr.models import Publication, ReviewItem
+from kioskarr.db import get_db
+from kioskarr.jobs.import_job import import_issue
+from kioskarr.models import Publication, ReviewItem
 
 router = APIRouter(prefix="/review", tags=["review"])
 

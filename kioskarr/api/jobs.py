@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from magazinerr.config import settings
-from magazinerr.db import get_db
-from magazinerr.jobs.import_job import run_import_job
-from magazinerr.qbittorrent_client import QBittorrentClient
+from kioskarr.config import settings
+from kioskarr.db import get_db
+from kioskarr.jobs.import_job import run_import_job
+from kioskarr.qbittorrent_client import QBittorrentClient
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 

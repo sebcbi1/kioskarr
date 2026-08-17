@@ -7,10 +7,10 @@ import requests
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from magazinerr.config import settings
-from magazinerr.jobs.search_job import search_with_fallback
-from magazinerr.parser import parse
-from magazinerr.prowlarr_client import ProwlarrClient
+from kioskarr.config import settings
+from kioskarr.jobs.search_job import search_with_fallback
+from kioskarr.parser import parse
+from kioskarr.prowlarr_client import ProwlarrClient
 
 router = APIRouter(prefix="/search", tags=["search"])
 

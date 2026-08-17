@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from magazinerr.db import get_db
-from magazinerr.models import Grab, GrabStatus
+from kioskarr.db import get_db
+from kioskarr.models import Grab, GrabStatus
 
 router = APIRouter(prefix="/grabs", tags=["grabs"])
 

@@ -8,11 +8,11 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from magazinerr.config import settings
-from magazinerr.matcher import is_confident_match
-from magazinerr.models import Grab, GrabStatus, Issue, Publication, ReviewItem
-from magazinerr.parser import FORMAT_EXTENSIONS, parse
-from magazinerr.qbittorrent_client import QBittorrentClient
+from kioskarr.config import settings
+from kioskarr.matcher import is_confident_match
+from kioskarr.models import Grab, GrabStatus, Issue, Publication, ReviewItem
+from kioskarr.parser import FORMAT_EXTENSIONS, parse
+from kioskarr.qbittorrent_client import QBittorrentClient
 
 logger = logging.getLogger(__name__)
 

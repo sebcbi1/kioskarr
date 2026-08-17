@@ -2,10 +2,10 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from magazinerr.db import Base
-from magazinerr.jobs.search_job import run_search_job
-from magazinerr.models import Grab, GrabStatus, Publication, PublicationType, ReviewItem
-from magazinerr.prowlarr_client import Release
+from kioskarr.db import Base
+from kioskarr.jobs.search_job import run_search_job
+from kioskarr.models import Grab, GrabStatus, Publication, PublicationType, ReviewItem
+from kioskarr.prowlarr_client import Release
 
 
 @pytest.fixture

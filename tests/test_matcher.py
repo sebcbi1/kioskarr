@@ -2,10 +2,10 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from magazinerr.db import Base
-from magazinerr.matcher import is_confident_match, issue_already_owned, title_match_score
-from magazinerr.models import Issue, Publication, PublicationType
-from magazinerr.parser import parse
+from kioskarr.db import Base
+from kioskarr.matcher import is_confident_match, issue_already_owned, title_match_score
+from kioskarr.models import Issue, Publication, PublicationType
+from kioskarr.parser import parse
 
 
 @pytest.fixture

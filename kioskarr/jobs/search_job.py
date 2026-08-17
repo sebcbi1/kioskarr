@@ -17,13 +17,13 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from magazinerr.config import settings
-from magazinerr.jobs.import_job import _select_issue_file
-from magazinerr.matcher import is_confident_match, issue_already_owned
-from magazinerr.models import Grab, GrabStatus, Publication, ReviewItem
-from magazinerr.parser import ParsedRelease, identifier_sort_key, is_identifier_newer, parse
-from magazinerr.prowlarr_client import ProwlarrClient, Release
-from magazinerr.qbittorrent_client import QBittorrentClient
+from kioskarr.config import settings
+from kioskarr.jobs.import_job import _select_issue_file
+from kioskarr.matcher import is_confident_match, issue_already_owned
+from kioskarr.models import Grab, GrabStatus, Publication, ReviewItem
+from kioskarr.parser import ParsedRelease, identifier_sort_key, is_identifier_newer, parse
+from kioskarr.prowlarr_client import ProwlarrClient, Release
+from kioskarr.qbittorrent_client import QBittorrentClient
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +156,7 @@ def run_search_job(
         indexer_priorities = {}
 
     # All categories, not just ours — a torrent can already exist elsewhere
-    # (e.g. under "books") from before magazinerr ever ran. Knowing the hash
+    # (e.g. under "books") from before kioskarr ever ran. Knowing the hash
     # upfront (from Prowlarr's own infoHash field) means we can tell it's a
     # duplicate before even calling add_torrent, instead of guessing after
     # the fact from a missing hash.

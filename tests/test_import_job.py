@@ -2,9 +2,9 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from magazinerr.db import Base
-from magazinerr.jobs.import_job import _parse_file_entry, _select_issue_file, run_import_job
-from magazinerr.models import FormatPreference, Grab, GrabStatus, Publication, PublicationType, ReviewItem
+from kioskarr.db import Base
+from kioskarr.jobs.import_job import _parse_file_entry, _select_issue_file, run_import_job
+from kioskarr.models import FormatPreference, Grab, GrabStatus, Publication, PublicationType, ReviewItem
 
 
 @pytest.fixture

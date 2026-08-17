@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from magazinerr.db import Base
+from kioskarr.db import Base
 
 
 class PublicationType(str, enum.Enum):

@@ -1,6 +1,6 @@
 import pytest
 
-from magazinerr.parser import identifier_sort_key, is_identifier_newer, normalize, parse
+from kioskarr.parser import identifier_sort_key, is_identifier_newer, normalize, parse
 
 # (release_title, expected_identifier, expected_kind, title_substring_expected)
 DATE_AND_ISSUE_CASES = [

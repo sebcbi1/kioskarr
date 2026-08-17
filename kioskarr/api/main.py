@@ -2,10 +2,10 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from magazinerr.api import grabs, jobs, publications, review, search
-from magazinerr.config import settings
-from magazinerr.db import init_db
-from magazinerr.scheduler import start_scheduler, stop_scheduler
+from kioskarr.api import grabs, jobs, publications, review, search
+from kioskarr.config import settings
+from kioskarr.db import init_db
+from kioskarr.scheduler import start_scheduler, stop_scheduler
 
 
 @asynccontextmanager
@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
     stop_scheduler()
 
 
-app = FastAPI(title="Magazinerr", lifespan=lifespan)
+app = FastAPI(title="Kioskarr", lifespan=lifespan)
 app.include_router(publications.router)
 app.include_router(review.router)
 app.include_router(grabs.router)

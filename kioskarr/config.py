@@ -2,9 +2,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_prefix="MAGAZINERR_")
+    model_config = SettingsConfigDict(env_file=".env", env_prefix="KIOSKARR_")
 
-    database_url: str = "sqlite:///./magazinerr.db"
+    database_url: str = "sqlite:///./kioskarr.db"
 
     prowlarr_url: str = "http://localhost:9696"
     prowlarr_api_key: str = ""
@@ -12,11 +12,11 @@ class Settings(BaseSettings):
     qbittorrent_url: str = "http://localhost:8080"
     qbittorrent_username: str = "admin"
     qbittorrent_password: str = ""
-    qbittorrent_category: str = "magazinerr"
+    qbittorrent_category: str = "kioskarr"
     # Local filesystem path where qBittorrent's own save_path (as reported by its
     # API) is actually reachable from this process — e.g. a mount of a remote
     # download directory. When unset, the import job trusts the API's save_path
-    # directly, which only works if magazinerr runs on the same host/filesystem
+    # directly, which only works if kioskarr runs on the same host/filesystem
     # as qBittorrent.
     qbittorrent_downloads_local_path: str = ""
 
@@ -31,14 +31,14 @@ class Settings(BaseSettings):
     def require_prowlarr(self) -> None:
         if not self.prowlarr_api_key:
             raise RuntimeError(
-                "MAGAZINERR_PROWLARR_API_KEY is not set — cannot search indexers."
+                "KIOSKARR_PROWLARR_API_KEY is not set — cannot search indexers."
             )
 
     def require_download_client(self) -> None:
         self.require_prowlarr()
         if not self.qbittorrent_password:
             raise RuntimeError(
-                "MAGAZINERR_QBITTORRENT_PASSWORD is not set — cannot control downloads."
+                "KIOSKARR_QBITTORRENT_PASSWORD is not set — cannot control downloads."
             )
 
 

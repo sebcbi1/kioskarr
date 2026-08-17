@@ -2,12 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from magazinerr.config import settings
-from magazinerr.db import get_db
-from magazinerr.jobs.search_job import run_search_job
-from magazinerr.models import FormatPreference, Publication, PublicationType
-from magazinerr.prowlarr_client import ProwlarrClient
-from magazinerr.qbittorrent_client import QBittorrentClient
+from kioskarr.config import settings
+from kioskarr.db import get_db
+from kioskarr.jobs.search_job import run_search_job
+from kioskarr.models import FormatPreference, Publication, PublicationType
+from kioskarr.prowlarr_client import ProwlarrClient
+from kioskarr.qbittorrent_client import QBittorrentClient
 
 router = APIRouter(prefix="/publications", tags=["publications"])
 
