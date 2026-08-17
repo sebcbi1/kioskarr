@@ -85,6 +85,24 @@ via `fetch()` and routes client-side via the URL hash (`#/publications`, `#/revi
 - **Grabs** — grab history, filterable by status.
 - **Settings** — every setting below, editable and saved to the database live.
 
+## Authentication
+
+Matches Radarr/Sonarr's own model: **a single admin account**, no multi-user/roles.
+There's no separate on/off setting — the app is open (no login at all) until you set
+an admin password on the Settings page, and login becomes required for every page and
+API request from that point on. Clear the password (a checkbox on the same page) to
+disable login again. Sessions are a signed cookie (`kioskarr_session`); the signing key
+is generated once and stored in the DB, so sessions survive restarts.
+
+`GET /settings` never returns `prowlarr_api_key`, `qbittorrent_password`, or any
+password — only `*_set` booleans so the UI can show configured/not-configured without
+exposing values. `PATCH /settings` still accepts them (omit a field to leave it
+unchanged, send a value to set it, send `""` to clear it). This is deliberately *not*
+at-rest encryption of the SQLite file — same reasoning Radarr/Sonarr operate under:
+anyone with file-level access to `kioskarr.db` likely also has process-level access to
+the running app (which must read the plaintext to call Prowlarr/qBittorrent anyway), so
+rely on normal file permissions instead.
+
 ## API
 
 - `POST /publications` — add a publication to watch: `title`, `target_dir`, and optionally
@@ -108,8 +126,13 @@ via `fetch()` and routes client-side via the URL hash (`#/publications`, `#/revi
   would see for a query, without grabbing anything or writing to the database. Useful for
   checking indexer coverage and parse quality for a title before adding it as a publication.
 - `GET /settings`, `PATCH /settings` — read/update every DB-backed setting (Prowlarr and
-  qBittorrent connection details included). Changing `search_interval_hours` or
-  `import_interval_minutes` reschedules the background jobs immediately.
+  qBittorrent connection details included, secrets never exposed — see Authentication
+  below). Changing `search_interval_hours` or `import_interval_minutes` reschedules the
+  background jobs immediately.
+- `GET /auth/status` — `{auth_required, authenticated}`, always reachable. `POST /auth/login`
+  — `{username, password}`, sets the session cookie. `POST /auth/logout` — clears it.
+  Every other endpoint above requires a valid session once an admin password is set (see
+  Authentication below).
 
 ### Cold start (avoiding a back-catalog dump on day one)
 

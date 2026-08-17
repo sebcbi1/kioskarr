@@ -8,13 +8,34 @@
   <script defer src="/static/vendor/alpine.min.js"></script>
 </head>
 <body>
-  <div class="app" x-data="app()">
+  <div x-data="app()">
+    <template x-if="showLogin">
+      <div class="login-screen">
+        <div class="login-card form-panel">
+          <div class="brand">Kioskarr</div>
+          <form @submit.prevent="login">
+            <div class="field">
+              <label>Username</label>
+              <input type="text" x-model="loginForm.username" required autofocus />
+            </div>
+            <div class="field">
+              <label>Password</label>
+              <input type="password" x-model="loginForm.password" required />
+            </div>
+            <div class="error-text" x-show="loginError" x-text="loginError"></div>
+            <button type="submit" class="btn btn-primary" style="width: 100%;">Log In</button>
+          </form>
+        </div>
+      </div>
+    </template>
+    <div class="app" x-show="!showLogin">
     <nav class="sidebar">
       <div class="brand">Kioskarr</div>
       <a class="nav-link" :class="{ active: route.name === 'publications' || route.name === 'publication-form' }" href="#/publications">Publications</a>
       <a class="nav-link" :class="{ active: route.name === 'review' }" href="#/review">Review Queue</a>
       <a class="nav-link" :class="{ active: route.name === 'grabs' }" href="#/grabs">Grabs</a>
       <a class="nav-link" :class="{ active: route.name === 'settings' }" href="#/settings">Settings</a>
+      <a class="nav-link" x-show="auth.auth_required" href="#" @click.prevent="logout()">Log out</a>
     </nav>
     <main class="content">
       <div class="toast" :class="'toast-' + toast.type" x-show="toast.message" x-transition x-text="toast.message" style="display: none;"></div>
@@ -220,12 +241,18 @@
             <form @submit.prevent="saveSettings">
               <div class="form-section-title">Prowlarr</div>
               <div class="field"><label>URL</label><input type="url" x-model="settings.prowlarr_url" required /></div>
-              <div class="field"><label>API key</label><input type="password" x-model="settings.prowlarr_api_key" /></div>
+              <div class="field">
+                <label>API key</label>
+                <input type="password" x-model="secrets.prowlarr_api_key" :placeholder="settings.prowlarr_api_key_set ? 'Currently set — leave blank to keep' : 'Not set'" />
+              </div>
 
               <div class="form-section-title">qBittorrent</div>
               <div class="field"><label>URL</label><input type="url" x-model="settings.qbittorrent_url" required /></div>
               <div class="field"><label>Username</label><input type="text" x-model="settings.qbittorrent_username" /></div>
-              <div class="field"><label>Password</label><input type="password" x-model="settings.qbittorrent_password" /></div>
+              <div class="field">
+                <label>Password</label>
+                <input type="password" x-model="secrets.qbittorrent_password" :placeholder="settings.qbittorrent_password_set ? 'Currently set — leave blank to keep' : 'Not set'" />
+              </div>
               <div class="field"><label>Category</label><input type="text" x-model="settings.qbittorrent_category" /></div>
               <div class="field">
                 <label>Downloads local path</label>
@@ -242,6 +269,19 @@
               <div class="form-section-title">Library</div>
               <div class="field"><label>Library root</label><input type="text" x-model="settings.library_root" /></div>
 
+              <div class="form-section-title">Admin account</div>
+              <div class="field"><label>Username</label><input type="text" x-model="settings.admin_username" /></div>
+              <div class="field">
+                <label>Password</label>
+                <input type="password" x-model="secrets.admin_password" :disabled="clearAdminPassword"
+                       :placeholder="settings.admin_password_set ? 'Currently set — leave blank to keep' : 'Not set — app is open, no login required'" />
+                <span class="hint">Setting a password requires logging in for every page/API request from then on.</span>
+              </div>
+              <div class="checkbox-field field" x-show="settings.admin_password_set">
+                <input type="checkbox" id="clear-admin-password" x-model="clearAdminPassword" />
+                <label for="clear-admin-password">Remove password (disable login again)</label>
+              </div>
+
               <div class="form-actions">
                 <button type="submit" class="btn btn-primary">Save Settings</button>
               </div>
@@ -250,6 +290,7 @@
         </div>
       </template>
     </main>
+    </div>
   </div>
   <script src="/static/app.js"></script>
 </body>

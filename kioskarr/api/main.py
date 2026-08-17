@@ -2,11 +2,14 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
 
+from kioskarr.api import auth as auth_api
 from kioskarr.api import grabs, jobs, publications, review, search, settings as settings_api
+from kioskarr.api.auth import require_auth
 from kioskarr.app_settings import ensure_app_settings_seeded
 from kioskarr.db import SessionLocal, init_db
 from kioskarr.scheduler import start_scheduler, stop_scheduler
@@ -19,31 +22,44 @@ STATIC_DIR = Path(__file__).parent.parent / "static"
 # sets up its own "uvicorn.*" loggers, not application code's.
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
+# Needs to happen before the app/middleware are constructed below: SessionMiddleware
+# requires a secret_key at registration time, and that key lives in the DB-backed
+# AppSettings row (so it survives restarts instead of invalidating every session).
+init_db()
+_db = SessionLocal()
+try:
+    _app_settings = ensure_app_settings_seeded(_db)
+    _session_secret_key = _app_settings.session_secret_key
+finally:
+    _db.close()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
-    db = SessionLocal()
-    try:
-        app_settings = ensure_app_settings_seeded(db)
-    finally:
-        db.close()
     # Deliberately does NOT fail startup if Prowlarr/qBittorrent credentials are
     # missing — settings are now edited live via the Settings page, which has to
     # be reachable to configure them in the first place. Scheduler ticks and the
     # search-now/import-now endpoints each check for this individually instead.
-    start_scheduler(app_settings)
+    start_scheduler(_app_settings)
     yield
     stop_scheduler()
 
 
 app = FastAPI(title="Kioskarr", lifespan=lifespan)
-app.include_router(publications.router)
-app.include_router(review.router)
-app.include_router(grabs.router)
-app.include_router(search.router)
-app.include_router(jobs.router)
-app.include_router(settings_api.router)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=_session_secret_key,
+    session_cookie="kioskarr_session",
+    same_site="lax",
+    https_only=False,  # flip to True if this ends up behind an HTTPS reverse proxy
+)
+app.include_router(auth_api.router)
+app.include_router(publications.router, dependencies=[Depends(require_auth)])
+app.include_router(review.router, dependencies=[Depends(require_auth)])
+app.include_router(grabs.router, dependencies=[Depends(require_auth)])
+app.include_router(search.router, dependencies=[Depends(require_auth)])
+app.include_router(jobs.router, dependencies=[Depends(require_auth)])
+app.include_router(settings_api.router, dependencies=[Depends(require_auth)])
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 

@@ -21,6 +21,12 @@ async function apiFetch(url, options = {}) {
     headers: { "Content-Type": "application/json" },
     ...options,
   });
+  if (res.status === 401) {
+    // Decoupled from the Alpine component on purpose — apiFetch is a plain
+    // function, not a method, so it can't reach `this.auth` directly. Covers
+    // session expiry mid-use, not just the initial not-logged-in-yet case.
+    window.dispatchEvent(new CustomEvent("kioskarr:unauthorized"));
+  }
   if (!res.ok) {
     let message = res.statusText;
     try {
@@ -41,20 +47,66 @@ function app() {
     toast: { message: "", type: "success" },
     _toastTimer: null,
 
+    auth: { auth_required: false, authenticated: true },
+    loginForm: { username: "", password: "" },
+    loginError: "",
+
     publications: [],
     reviewItems: [],
     grabs: [],
     grabStatusFilter: "",
     settings: null,
+    secrets: { prowlarr_api_key: "", qbittorrent_password: "", admin_password: "" },
+    clearAdminPassword: false,
 
     form: {},
 
-    init() {
+    get showLogin() {
+      return this.auth.auth_required && !this.auth.authenticated;
+    },
+
+    async init() {
       window.addEventListener("hashchange", () => {
         this.route = parseHash();
         this.onRouteEnter();
       });
-      this.onRouteEnter();
+      window.addEventListener("kioskarr:unauthorized", () => {
+        this.auth = { auth_required: true, authenticated: false };
+      });
+      await this.checkAuthStatus();
+      if (!this.showLogin) this.onRouteEnter();
+    },
+
+    // --- Auth ---
+    async checkAuthStatus() {
+      try {
+        this.auth = await apiFetch("/auth/status");
+      } catch (e) {
+        // If the status check itself fails, default to open — matches the app's
+        // long-standing behavior of never blocking access on a broken check.
+        this.auth = { auth_required: false, authenticated: true };
+      }
+    },
+
+    async login() {
+      this.loginError = "";
+      try {
+        this.auth = await apiFetch("/auth/login", { method: "POST", body: JSON.stringify(this.loginForm) });
+        this.loginForm = { username: "", password: "" };
+        this.route = parseHash();
+        this.onRouteEnter();
+      } catch (e) {
+        this.loginError = e.message;
+      }
+    },
+
+    async logout() {
+      try {
+        await apiFetch("/auth/logout", { method: "POST" });
+      } catch (e) {
+        // ignore — proceed to the login screen regardless
+      }
+      this.auth = { auth_required: true, authenticated: false };
     },
 
     onRouteEnter() {
@@ -242,15 +294,45 @@ function app() {
     async loadSettings() {
       try {
         this.settings = await apiFetch("/settings");
+        this.secrets = { prowlarr_api_key: "", qbittorrent_password: "", admin_password: "" };
+        this.clearAdminPassword = false;
       } catch (e) {
         this.showToast(`Failed to load settings: ${e.message}`, "error");
       }
     },
 
     async saveSettings() {
+      // GET /settings never returns the actual secret values (only *_set flags),
+      // so unlike every other field here, these three can't be round-tripped by
+      // spreading the fetched object — each is only included if the admin actually
+      // typed a new value (or, for the admin password, explicitly asked to clear it).
+      const payload = {
+        prowlarr_url: this.settings.prowlarr_url,
+        qbittorrent_url: this.settings.qbittorrent_url,
+        qbittorrent_username: this.settings.qbittorrent_username,
+        qbittorrent_category: this.settings.qbittorrent_category,
+        qbittorrent_downloads_local_path: this.settings.qbittorrent_downloads_local_path,
+        library_root: this.settings.library_root,
+        search_interval_hours: Number(this.settings.search_interval_hours),
+        import_interval_minutes: Number(this.settings.import_interval_minutes),
+        default_min_seeders: Number(this.settings.default_min_seeders),
+        match_confidence_threshold: Number(this.settings.match_confidence_threshold),
+        admin_username: this.settings.admin_username,
+      };
+      if (this.secrets.prowlarr_api_key) payload.prowlarr_api_key = this.secrets.prowlarr_api_key;
+      if (this.secrets.qbittorrent_password) payload.qbittorrent_password = this.secrets.qbittorrent_password;
+      if (this.clearAdminPassword) {
+        payload.admin_password = "";
+      } else if (this.secrets.admin_password) {
+        payload.admin_password = this.secrets.admin_password;
+      }
+
       try {
-        this.settings = await apiFetch("/settings", { method: "PATCH", body: JSON.stringify(this.settings) });
+        this.settings = await apiFetch("/settings", { method: "PATCH", body: JSON.stringify(payload) });
+        this.secrets = { prowlarr_api_key: "", qbittorrent_password: "", admin_password: "" };
+        this.clearAdminPassword = false;
         this.showToast("Settings saved", "success");
+        await this.checkAuthStatus();
       } catch (e) {
         this.showToast(`Save failed: ${e.message}`, "error");
       }

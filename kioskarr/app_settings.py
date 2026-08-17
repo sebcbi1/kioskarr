@@ -5,6 +5,8 @@ reach the DB before you can query it for anything) lives here instead of
 kioskarr.config, so it's editable live via the Settings UI/API without a restart.
 """
 
+import secrets
+
 from sqlalchemy.orm import Session
 
 from kioskarr.config import settings as env_settings
@@ -29,6 +31,12 @@ def ensure_app_settings_seeded(db: Session) -> AppSettings:
     automatically instead of needing to be retyped into the new Settings page."""
     app_settings = db.get(AppSettings, _SETTINGS_ID)
     if app_settings is not None:
+        # session_secret_key was added after some deployments already had a row —
+        # backfill it in place rather than requiring a migration.
+        if not app_settings.session_secret_key:
+            app_settings.session_secret_key = secrets.token_hex(32)
+            db.commit()
+            db.refresh(app_settings)
         return app_settings
 
     app_settings = AppSettings(
@@ -45,6 +53,7 @@ def ensure_app_settings_seeded(db: Session) -> AppSettings:
         import_interval_minutes=env_settings.import_interval_minutes,
         default_min_seeders=env_settings.default_min_seeders,
         match_confidence_threshold=env_settings.match_confidence_threshold,
+        session_secret_key=secrets.token_hex(32),
     )
     db.add(app_settings)
     db.commit()

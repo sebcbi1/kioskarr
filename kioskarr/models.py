@@ -131,6 +131,14 @@ class AppSettings(Base):
     default_min_seeders: Mapped[int] = mapped_column(Integer, default=1)
     match_confidence_threshold: Mapped[float] = mapped_column(Float, default=75.0)
 
+    # Single-admin-user auth, matching Radarr/Sonarr's own model (no multi-user/roles).
+    # Empty admin_password_hash means auth is disabled — that's the entire on/off
+    # switch, there's no separate "enabled" flag. session_secret_key signs session
+    # cookies and is never exposed via any API response.
+    admin_username: Mapped[str] = mapped_column(String, default="admin")
+    admin_password_hash: Mapped[str] = mapped_column(String, default="")
+    session_secret_key: Mapped[str] = mapped_column(String, default="")
+
     def require_prowlarr(self) -> None:
         if not self.prowlarr_api_key:
             raise RuntimeError("Prowlarr API key is not set — cannot search indexers.")

@@ -197,6 +197,18 @@ tr:hover td { background: var(--panel-alt); }
   max-width: 640px;
 }
 
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+}
+.login-card { width: 320px; }
+.login-card .brand { text-align: center; padding: 0 0 20px; }
+
+.error-text { color: var(--danger); font-size: 13px; margin-bottom: 12px; }
+
 .form-section-title {
   font-size: 13px;
   font-weight: 600;

@@ -49,6 +49,23 @@ def test_get_app_settings_returns_current_values_after_update(db_session):
     assert refetched.match_confidence_threshold == 90.0
 
 
+def test_ensure_app_settings_seeded_generates_session_secret_key(db_session):
+    app_settings = ensure_app_settings_seeded(db_session)
+
+    assert app_settings.session_secret_key != ""
+    assert len(app_settings.session_secret_key) >= 32
+
+
+def test_ensure_app_settings_seeded_backfills_missing_session_secret_key(db_session):
+    app_settings = ensure_app_settings_seeded(db_session)
+    app_settings.session_secret_key = ""
+    db_session.commit()
+
+    refetched = ensure_app_settings_seeded(db_session)
+
+    assert refetched.session_secret_key != ""
+
+
 def test_require_download_client_and_require_prowlarr(db_session):
     app_settings = ensure_app_settings_seeded(db_session)
     app_settings.prowlarr_api_key = ""
