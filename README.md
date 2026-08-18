@@ -80,23 +80,31 @@ somewhere reachable from the container, same as running it directly (see Prerequ
 docker compose up -d --build
 ```
 
-This builds the image, then bind-mounts three host directories next to
-`docker-compose.yml` (created automatically if missing):
+This builds the image, then bind-mounts two host directories (created automatically if
+missing):
 
 - `./data` → `/data` — holds `kioskarr.db`. **This is the one directory that actually
   matters to back up.**
-- `./library` → `/library` — the shared library root; set each publication's
-  `target_dir` to a subfolder of this from the UI (e.g. `/library/ouest-france`).
-- `./qbit-downloads` → `/downloads` (read-only) — only needed if qBittorrent runs on a
-  different host/filesystem than this container; point it at wherever qBittorrent's
-  `save_path` is actually reachable from here (see Import below). Bind-mount it from
-  the *same underlying filesystem* as `./library` if you want hardlinking (no extra
-  disk space, keeps seeding) to actually succeed instead of falling back to a copy.
+- qBittorrent's real download directory → `/downloads` — change the `/path/to/your/downloads`
+  host side in `docker-compose.yml` to wherever qBittorrent's `save_path` is actually
+  reachable from this container (see Import below). Organized/renamed issues land in
+  `/downloads/ebooks` (`KIOSKARR_LIBRARY_ROOT`) — a *subfolder of this same mount*, not a
+  separate one, so the source download and the renamed copy are guaranteed to be on the
+  same filesystem and importing actually hardlinks the file (no extra disk space, keeps
+  seeding) instead of falling back to a plain copy. Set each publication's `target_dir` to
+  a subfolder of this from the UI (e.g. `/downloads/ebooks/ouest-france`). If qBittorrent's
+  downloads and your desired library location are genuinely on different filesystems, split
+  this back into two separate bind mounts — it'll still work, just via a copy instead of a
+  hardlink.
 
 `KIOSKARR_PROWLARR_URL`/`KIOSKARR_QBITTORRENT_URL` default to
-`http://host.docker.internal:9696`/`:8080` (works out of the box on Docker Desktop; the
-`extra_hosts` entry in `docker-compose.yml` is what makes `host.docker.internal` resolve
-on Linux too) — override them in the environment if Prowlarr/qBittorrent run elsewhere.
+`http://host.docker.internal:9696`/`:8080` — reachable this way when Prowlarr/qBittorrent
+run natively on the same host as this container (works out of the box on Docker Desktop;
+the `extra_hosts` entry in `docker-compose.yml` is what makes `host.docker.internal`
+resolve on Linux too). If they're *also* containers, join their Docker network directly
+instead and reference them by container name — more reliable than routing through the
+host, and doesn't require their WebUI ports to be published. Change the host-side port in
+`ports:` too if 8000 is already taken on your setup.
 Everything else (API keys, passwords, intervals) is a one-time seed exactly as described
 in Setup above — configure the rest from the Settings page after first boot rather than
 baking secrets into `docker-compose.yml`.

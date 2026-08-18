@@ -2,25 +2,29 @@ services:
   kioskarr:
     build: .
     ports:
+      # host:container — change the host side if 8000 is already taken on your
+      # setup; Kioskarr itself always listens on 8000 inside the container.
       - "8000:8000"
     volumes:
       # DB lives here — this is the one directory that actually matters to back up.
       - ./data:/data
-      # Shared library root; publications' target_dir should be subfolders of this
-      # (e.g. /library/ouest-france), set from the Settings/Publications UI.
-      - ./library:/library
-      # qBittorrent's own download directory, read-only — only needed if Kioskarr
-      # runs on a different host/filesystem than qBittorrent. Point this at wherever
-      # qBittorrent's `save_path` is actually reachable from here.
-      - ./qbit-downloads:/downloads:ro
+      # qBittorrent's real download directory, and where organized/renamed issues end
+      # up too (as the "ebooks" subfolder of this same mount). Keeping both under one
+      # mount guarantees they're on the same filesystem, so importing hardlinks the
+      # file (no extra disk space, keeps seeding) instead of falling back to a copy.
+      # Change the host side to wherever qBittorrent's `save_path` is actually
+      # reachable from here.
+      - /path/to/your/downloads:/downloads
     environment:
       KIOSKARR_DATABASE_URL: sqlite:////data/kioskarr.db
-      KIOSKARR_LIBRARY_ROOT: /library
+      KIOSKARR_LIBRARY_ROOT: /downloads/ebooks
       KIOSKARR_QBITTORRENT_DOWNLOADS_LOCAL_PATH: /downloads
       # Seed values only (see README) — Prowlarr/qBittorrent are expected to already
       # be running somewhere reachable from this container, not part of this compose
       # file. host.docker.internal works out of the box on Docker Desktop; the
-      # extra_hosts entry below is what makes it resolve on Linux too.
+      # extra_hosts entry below is what makes it resolve on Linux too. If they're
+      # *also* containers, join their Docker network directly instead and reference
+      # them by container name.
       KIOSKARR_PROWLARR_URL: ${KIOSKARR_PROWLARR_URL:-http://host.docker.internal:9696}
       KIOSKARR_QBITTORRENT_URL: ${KIOSKARR_QBITTORRENT_URL:-http://host.docker.internal:8080}
     extra_hosts:
