@@ -12,6 +12,8 @@ dependencies = [
     "requests>=2.32",
     "pydantic-settings>=2.4",
     "itsdangerous>=2.1",
+    "pypdfium2>=4.30",
+    "Pillow>=10.0",
 ]
 
 [project.optional-dependencies]

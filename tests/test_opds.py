@@ -1,9 +1,12 @@
+import io
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 ATOM = "{http://www.w3.org/2005/Atom}"
+PLACEHOLDER_COVER_FILE = Path(__file__).resolve().parent.parent / "kioskarr" / "static" / "opds-placeholder-cover.jpg"
 
 
 @pytest.fixture
@@ -45,7 +48,9 @@ def _make_publication(title="Ouest France", target_dir="/tmp/kioskarr-test-libra
         db.close()
 
 
-def _make_issue(publication_id, identifier, file_path, source_release_title="Some.Release.Title"):
+def _make_issue(
+    publication_id, identifier, file_path, source_release_title="Some.Release.Title", imported_at=None
+):
     from kioskarr.db import SessionLocal
     from kioskarr.models import Issue
 
@@ -57,6 +62,8 @@ def _make_issue(publication_id, identifier, file_path, source_release_title="Som
             file_path=str(file_path),
             source_release_title=source_release_title,
         )
+        if imported_at is not None:
+            issue.imported_at = imported_at
         db.add(issue)
         db.commit()
         db.refresh(issue)
@@ -86,8 +93,8 @@ def test_root_feed_lists_one_entry_per_publication(client):
     assert any(f"/opds/publications/{pub2}" in e.find(f"{ATOM}link").get("href") for e in entries)
 
 
-def test_root_feed_entries_include_placeholder_cover_links(client):
-    _make_publication()
+def test_root_feed_entry_with_no_issues_links_placeholder_cover(client):
+    _make_publication()  # no issues — nothing to borrow a cover from
 
     response = client.get("/opds")
 
@@ -98,8 +105,31 @@ def test_root_feed_entries_include_placeholder_cover_links(client):
     assert "http://opds-spec.org/image/thumbnail" in rels
     for link in links:
         if link.get("rel", "").startswith("http://opds-spec.org/image"):
-            assert link.get("href") == "/static/opds-placeholder-cover.png"
-            assert link.get("type") == "image/png"
+            assert link.get("href") == "/static/opds-placeholder-cover.jpg"
+            assert link.get("type") == "image/jpeg"
+
+
+def test_root_feed_entry_with_issues_links_latest_issues_cover(client, tmp_path):
+    from datetime import datetime, timezone
+
+    pub = _make_publication()
+    file_path = tmp_path / "issue.pdf"
+    file_path.write_bytes(b"content")
+    older_id = _make_issue(
+        pub, "2026-08-01", file_path, imported_at=datetime(2026, 8, 1, tzinfo=timezone.utc)
+    )
+    file_path2 = tmp_path / "issue2.pdf"
+    file_path2.write_bytes(b"content2")
+    newer_id = _make_issue(
+        pub, "2026-08-13", file_path2, imported_at=datetime(2026, 8, 13, tzinfo=timezone.utc)
+    )
+
+    response = client.get("/opds")
+
+    entry = ET.fromstring(response.content).find(f"{ATOM}entry")
+    link = entry.find(f"{ATOM}link[@rel='http://opds-spec.org/image']")
+    assert link.get("href") == f"/opds/issues/{newer_id}/cover"
+    assert older_id != newer_id  # sanity check the two issues are actually distinct
 
 
 def test_publication_feed_lists_issues_with_correct_mime_types(client, tmp_path):
@@ -126,18 +156,23 @@ def test_publication_feed_lists_issues_with_correct_mime_types(client, tmp_path)
     assert "vnd.comicbook+zip" in links_by_type["application/vnd.comicbook+zip"].get("type")
 
 
-def test_publication_feed_issue_entries_include_placeholder_cover_links(client, tmp_path):
+def test_publication_feed_issue_entries_link_to_cover_endpoint(client, tmp_path):
     pub = _make_publication()
     file_path = tmp_path / "issue.pdf"
     file_path.write_bytes(b"content")
-    _make_issue(pub, "2026-08-13", file_path)
+    issue_id = _make_issue(pub, "2026-08-13", file_path)
 
     response = client.get(f"/opds/publications/{pub}")
 
     entry = ET.fromstring(response.content).find(f"{ATOM}entry")
-    rels = {link.get("rel") for link in entry.findall(f"{ATOM}link")}
+    links = entry.findall(f"{ATOM}link")
+    rels = {link.get("rel") for link in links}
     assert "http://opds-spec.org/image" in rels
     assert "http://opds-spec.org/image/thumbnail" in rels
+    for link in links:
+        if link.get("rel", "").startswith("http://opds-spec.org/image"):
+            assert link.get("href") == f"/opds/issues/{issue_id}/cover"
+            assert link.get("type") == "image/jpeg"
 
 
 def test_publication_feed_unknown_mime_falls_back_to_octet_stream(client, tmp_path):
@@ -186,6 +221,121 @@ def test_download_issue_404_when_file_deleted_from_disk(client, tmp_path):
     response = client.get(f"/opds/issues/{issue_id}/download")
 
     assert response.status_code == 404
+
+
+def _write_real_pdf(path):
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument.new()
+    pdf.new_page(200, 280)
+    pdf.save(str(path))
+
+
+def _write_real_cbz(path, image_names=("001.jpg", "002.jpg")):
+    import io
+    import zipfile
+
+    from PIL import Image
+
+    with zipfile.ZipFile(path, "w") as archive:
+        for name in image_names:
+            buf = io.BytesIO()
+            Image.new("RGB", (50, 70), color=(200, 100, 50)).save(buf, "JPEG")
+            archive.writestr(name, buf.getvalue())
+
+
+def test_issue_cover_generates_real_jpeg_from_pdf(client, tmp_path):
+    from PIL import Image
+
+    pub = _make_publication()
+    pdf_path = tmp_path / "issue.pdf"
+    _write_real_pdf(pdf_path)
+    issue_id = _make_issue(pub, "2026-08-13", pdf_path)
+
+    response = client.get(f"/opds/issues/{issue_id}/cover")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    image = Image.open(io.BytesIO(response.content))
+    assert image.format == "JPEG"
+    assert image.width > 0 and image.height > 0
+
+
+def test_issue_cover_generates_real_jpeg_from_cbz(client, tmp_path):
+    from PIL import Image
+
+    pub = _make_publication()
+    cbz_path = tmp_path / "issue.cbz"
+    _write_real_cbz(cbz_path)
+    issue_id = _make_issue(pub, "2026-08-13", cbz_path)
+
+    response = client.get(f"/opds/issues/{issue_id}/cover")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    image = Image.open(io.BytesIO(response.content))
+    assert image.format == "JPEG"
+
+
+def test_issue_cover_falls_back_to_placeholder_for_unsupported_format(client, tmp_path):
+    pub = _make_publication()
+    epub_path = tmp_path / "issue.epub"
+    epub_path.write_bytes(b"not really an epub")
+    issue_id = _make_issue(pub, "2026-08-13", epub_path)
+
+    response = client.get(f"/opds/issues/{issue_id}/cover")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    assert response.content == PLACEHOLDER_COVER_FILE.read_bytes()
+
+
+def test_issue_cover_falls_back_to_placeholder_for_corrupt_pdf(client, tmp_path):
+    pub = _make_publication()
+    bad_pdf = tmp_path / "issue.pdf"
+    bad_pdf.write_bytes(b"not a real pdf")
+    issue_id = _make_issue(pub, "2026-08-13", bad_pdf)
+
+    response = client.get(f"/opds/issues/{issue_id}/cover")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+
+
+def test_issue_cover_404_for_unknown_issue(client):
+    response = client.get("/opds/issues/999999/cover")
+    assert response.status_code == 404
+
+
+def test_issue_cover_is_cached_not_regenerated(client, tmp_path):
+    pub = _make_publication()
+    pdf_path = tmp_path / "issue.pdf"
+    _write_real_pdf(pdf_path)
+    issue_id = _make_issue(pub, "2026-08-13", pdf_path)
+
+    first = client.get(f"/opds/issues/{issue_id}/cover")
+    cover_path = pdf_path.with_suffix(".jpg")
+    assert cover_path.is_file()
+    first_mtime = cover_path.stat().st_mtime_ns
+
+    second = client.get(f"/opds/issues/{issue_id}/cover")
+
+    assert first.content == second.content
+    assert cover_path.stat().st_mtime_ns == first_mtime  # not regenerated
+
+
+def test_issue_cover_by_token_works_with_no_auth(client, tmp_path):
+    pub = _make_publication()
+    pdf_path = tmp_path / "issue.pdf"
+    _write_real_pdf(pdf_path)
+    issue_id = _make_issue(pub, "2026-08-13", pdf_path)
+    token = _opds_token(client)
+    client.patch("/settings", json={"admin_password": "hunter2"})
+
+    response = client.get(f"/opds/token/{token}/issues/{issue_id}/cover")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
 
 
 def test_opds_open_when_no_password_set(client):

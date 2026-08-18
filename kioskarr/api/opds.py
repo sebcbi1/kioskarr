@@ -28,6 +28,7 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from kioskarr.app_settings import get_app_settings
+from kioskarr.covers import get_or_generate_cover
 from kioskarr.db import get_db
 from kioskarr.models import Issue, Publication
 
@@ -39,16 +40,17 @@ ET.register_namespace("", ATOM_NS)  # unprefixed Atom elements, matching OPDS co
 
 NAV_TYPE = "application/atom+xml;profile=opds-catalog;kind=navigation"
 ACQ_TYPE = "application/atom+xml;profile=opds-catalog;kind=acquisition"
+COVER_TYPE = "image/jpeg"
 
-# Real Kavita/Komga feeds always include a cover image per entry — some OPDS clients
-# built around a manga-style cover grid (e.g. Mihon's Kavita extension) may not render
-# an entry at all without one. Kioskarr doesn't generate real covers yet (first-page
-# extraction is a separate, bigger piece of work); this static placeholder lets us
-# confirm that's actually the reason before building that. Served from /static, which
-# is never auth-gated — the placeholder image itself isn't sensitive, only the actual
-# issue files are.
-PLACEHOLDER_COVER_PATH = "/static/opds-placeholder-cover.png"
-PLACEHOLDER_COVER_TYPE = "image/png"
+# Real per-issue covers (kioskarr/covers.py: first PDF page, or first CBZ image) are
+# generated lazily by the /issues/{id}/cover route below, not while building a feed
+# listing — rendering N covers synchronously while listing N issues would make listing
+# slow. This static fallback (also JPEG, so the type declared in the feed always matches
+# what's actually served) covers formats covers.py doesn't support (CBR/EPUB/MOBI) and
+# any extraction failure. Served from /static, which is never auth-gated — the
+# placeholder itself isn't sensitive, only the actual issue files are.
+PLACEHOLDER_COVER_FILE = Path(__file__).resolve().parent.parent / "static" / "opds-placeholder-cover.jpg"
+PLACEHOLDER_COVER_PATH = "/static/opds-placeholder-cover.jpg"
 
 # Modern, non-deprecated MIME types (application/x-cbz|x-cbr were deprecated by IANA
 # in 2017 and some current OPDS readers no longer recognize them).
@@ -76,20 +78,10 @@ def _tag(name: str) -> str:
     return f"{{{ATOM_NS}}}{name}"
 
 
-def _add_cover_links(entry: ET.Element) -> None:
+def _add_cover_links(entry: ET.Element, href: str) -> None:
+    ET.SubElement(entry, _tag("link"), rel="http://opds-spec.org/image", href=href, type=COVER_TYPE)
     ET.SubElement(
-        entry,
-        _tag("link"),
-        rel="http://opds-spec.org/image",
-        href=PLACEHOLDER_COVER_PATH,
-        type=PLACEHOLDER_COVER_TYPE,
-    )
-    ET.SubElement(
-        entry,
-        _tag("link"),
-        rel="http://opds-spec.org/image/thumbnail",
-        href=PLACEHOLDER_COVER_PATH,
-        type=PLACEHOLDER_COVER_TYPE,
+        entry, _tag("link"), rel="http://opds-spec.org/image/thumbnail", href=href, type=COVER_TYPE
     )
 
 
@@ -126,7 +118,16 @@ def _build_root_feed(db: Session, base: str) -> Response:
         ET.SubElement(
             entry, _tag("link"), rel="subsection", href=f"{base}/publications/{pub.id}", type=ACQ_TYPE
         )
-        _add_cover_links(entry)
+        # A publication has no file of its own to extract a cover from — borrow its
+        # latest issue's, same one this publication's own feed would show first.
+        latest_issue = (
+            db.query(Issue)
+            .filter(Issue.publication_id == pub.id)
+            .order_by(Issue.imported_at.desc())
+            .first()
+        )
+        cover_href = f"{base}/issues/{latest_issue.id}/cover" if latest_issue else PLACEHOLDER_COVER_PATH
+        _add_cover_links(entry, cover_href)
     return Response(content=_serialize(feed), media_type=NAV_TYPE)
 
 
@@ -161,7 +162,7 @@ def _build_publication_feed(db: Session, base: str, publication_id: int) -> Resp
             href=f"{base}/issues/{issue.id}/download",
             type=_mime_type_for(issue.file_path),
         )
-        _add_cover_links(entry)
+        _add_cover_links(entry, f"{base}/issues/{issue.id}/cover")
     return Response(content=_serialize(feed), media_type=ACQ_TYPE)
 
 
@@ -173,6 +174,16 @@ def _issue_file_response(db: Session, issue_id: int) -> FileResponse:
     if not path.is_file():
         raise HTTPException(404, "Issue file is no longer on disk")
     return FileResponse(path, media_type=_mime_type_for(issue.file_path), filename=path.name)
+
+
+def _issue_cover_response(db: Session, issue_id: int) -> FileResponse:
+    issue = db.get(Issue, issue_id)
+    if issue is None:
+        raise HTTPException(404, "Issue not found")
+    cover_path = get_or_generate_cover(issue)
+    if cover_path is None:
+        cover_path = PLACEHOLDER_COVER_FILE
+    return FileResponse(cover_path, media_type=COVER_TYPE)
 
 
 # --- Session-or-Basic-Auth routes (protected by main.py's require_auth_or_basic) ---
@@ -191,6 +202,11 @@ def publication_feed(publication_id: int, db: Session = Depends(get_db)) -> Resp
 @router.get("/issues/{issue_id}/download")
 def download_issue(issue_id: int, db: Session = Depends(get_db)) -> FileResponse:
     return _issue_file_response(db, issue_id)
+
+
+@router.get("/issues/{issue_id}/cover")
+def issue_cover(issue_id: int, db: Session = Depends(get_db)) -> FileResponse:
+    return _issue_cover_response(db, issue_id)
 
 
 # --- Token-in-URL routes — unprotected at the HTTP layer, self-authenticating ---
@@ -212,3 +228,9 @@ def publication_feed_by_token(token: str, publication_id: int, db: Session = Dep
 def download_issue_by_token(token: str, issue_id: int, db: Session = Depends(get_db)) -> FileResponse:
     _require_valid_token(token, db)
     return _issue_file_response(db, issue_id)
+
+
+@token_router.get("/issues/{issue_id}/cover")
+def issue_cover_by_token(token: str, issue_id: int, db: Session = Depends(get_db)) -> FileResponse:
+    _require_valid_token(token, db)
+    return _issue_cover_response(db, issue_id)

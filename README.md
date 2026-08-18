@@ -199,6 +199,19 @@ code for mobile apps — generated entirely client-side via the vendored
 invalidating the old URL immediately) buttons next to it. Anyone with the token URL has
 full read access to your library, no password needed, so treat it like one.
 
+**Cover images**: `GET /opds/issues/{id}/cover` (and its token-scoped equivalent) serves a
+real cover — page 1 rendered for a PDF, the first image (by name) for a CBZ — generated the
+first time it's requested and cached from then on. The cover is saved **right next to the
+issue file itself** (same name, `.jpg` extension, e.g. `2026-08-17 - Ouest France.pdf` →
+`2026-08-17 - Ouest France.jpg`), not in a separate cache directory — no extra setting
+needed, and it doubles as a real cover for Komga/Kavita/Calibre if they ever scan a
+publication's `target_dir` directly instead of (or alongside) OPDS, since that's the same
+same-name-cover convention those tools already look for. CBR/EPUB/MOBI aren't supported yet,
+and any extraction failure (a corrupt file, etc.) falls back to a generic placeholder image
+instead — a missing cover is never a hard error for the feed. Every entry in the root
+feed links to its most-recently-imported issue's cover as a stand-in "series" cover, since a
+publication has no file of its own to extract from.
+
 ### Cold start (avoiding a back-catalog dump on day one)
 
 An indexer can return a publication's entire available history — a single "le monde"
