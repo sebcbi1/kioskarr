@@ -8,8 +8,8 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from kioskarr.api import auth as auth_api
-from kioskarr.api import grabs, jobs, publications, review, search, settings as settings_api
-from kioskarr.api.auth import require_auth
+from kioskarr.api import grabs, jobs, opds, publications, review, search, settings as settings_api
+from kioskarr.api.auth import require_auth, require_auth_or_basic
 from kioskarr.app_settings import ensure_app_settings_seeded
 from kioskarr.db import SessionLocal, init_db
 from kioskarr.scheduler import start_scheduler, stop_scheduler
@@ -60,6 +60,9 @@ app.include_router(grabs.router, dependencies=[Depends(require_auth)])
 app.include_router(search.router, dependencies=[Depends(require_auth)])
 app.include_router(jobs.router, dependencies=[Depends(require_auth)])
 app.include_router(settings_api.router, dependencies=[Depends(require_auth)])
+# OPDS clients (Komga, Kavita, e-reader apps) are non-browser and can't do the
+# session-cookie login flow — this router accepts HTTP Basic too, not just a session.
+app.include_router(opds.router, dependencies=[Depends(require_auth_or_basic)])
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 

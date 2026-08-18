@@ -163,6 +163,22 @@ rely on normal file permissions instead.
   — `{username, password}`, sets the session cookie. `POST /auth/logout` — clears it.
   Every other endpoint above requires a valid session once an admin password is set (see
   Authentication below).
+- `GET /opds` — an [OPDS](https://specs.opds.io/opds-1.2) 1.2 catalog feed for external
+  reader apps (Komga, Kavita, Calibre-web/COPS, or any OPDS client) — see OPDS below.
+
+### OPDS (Komga/Kavita/Calibre-web/e-reader integration)
+
+`GET /opds` is a navigation feed listing every publication; each links to
+`GET /opds/publications/{id}`, an acquisition feed listing that publication's already-
+imported issues, each with a download link (`GET /opds/issues/{id}/download`) serving the
+real file with the correct `Content-Type` (`application/pdf`, `application/epub+zip`,
+`application/vnd.comicbook+zip`/`-rar` for cbz/cbr). Point any OPDS client at
+`http://<host>:8000/opds`.
+
+OPDS clients are non-browser apps that can't do the session-cookie login flow used
+elsewhere in this app, so `/opds/*` accepts **either** a valid session cookie **or** HTTP
+Basic Auth (same admin username/password) once one is set — everything else in the API
+still requires the session specifically.
 
 ### Cold start (avoiding a back-catalog dump on day one)
 
