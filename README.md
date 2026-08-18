@@ -188,6 +188,17 @@ elsewhere in this app, so `/opds/*` accepts **either** a valid session cookie **
 Basic Auth (same admin username/password) once one is set — everything else in the API
 still requires the session specifically.
 
+**Token-based access** (`/opds/token/{token}/...`, mirroring every route above) exists for
+clients that can't answer an interactive auth challenge at all — just a bare URL with no
+way to prompt for credentials (e.g. Mihon's Kavita extension, repurposed as a generic OPDS
+client, since Mihon itself has no built-in generic OPDS support). The token is visible on
+the Settings page as a ready-to-paste URL, with **Copy** (clipboard), **QR** (a scannable
+code for mobile apps — generated entirely client-side via the vendored
+`kioskarr/static/vendor/qrcode.js`, the URL never leaves the browser), and **Reload**
+(`PATCH /settings` with `{"regenerate_opds_token": true}` — generates a new token,
+invalidating the old URL immediately) buttons next to it. Anyone with the token URL has
+full read access to your library, no password needed, so treat it like one.
+
 ### Cold start (avoiding a back-catalog dump on day one)
 
 An indexer can return a publication's entire available history — a single "le monde"

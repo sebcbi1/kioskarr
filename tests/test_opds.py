@@ -196,3 +196,95 @@ def test_opds_session_cookie_also_works(client):
     response = client.get("/opds")
 
     assert response.status_code == 200
+
+
+def _opds_token(client):
+    return client.get("/settings").json()["opds_token"]
+
+
+def test_settings_exposes_a_real_opds_token(client):
+    body = client.get("/settings").json()
+    assert len(body["opds_token"]) > 10
+
+
+def test_regenerate_opds_token_changes_it_and_invalidates_the_old_one(client):
+    old_token = _opds_token(client)
+
+    response = client.patch("/settings", json={"regenerate_opds_token": True})
+
+    assert response.status_code == 200
+    new_token = response.json()["opds_token"]
+    assert new_token != old_token
+    assert len(new_token) > 10
+    # Old token no longer works...
+    assert client.get(f"/opds/token/{old_token}").status_code == 404
+    # ...new one does.
+    assert client.get(f"/opds/token/{new_token}").status_code == 200
+
+
+def test_regenerate_opds_token_false_is_a_no_op(client):
+    old_token = _opds_token(client)
+
+    response = client.patch("/settings", json={"regenerate_opds_token": False})
+
+    assert response.json()["opds_token"] == old_token
+
+
+def test_token_root_feed_works_with_no_auth_even_when_password_set(client):
+    # Fetch the token while still open — /settings itself requires a session once a
+    # password is set (no Basic Auth fallback there), so this has to happen first.
+    token = _opds_token(client)
+    client.patch("/settings", json={"admin_password": "hunter2"})
+
+    response = client.get(f"/opds/token/{token}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/atom+xml;profile=opds-catalog;kind=navigation"
+
+
+def test_token_route_404s_for_wrong_token(client):
+    client.patch("/settings", json={"admin_password": "hunter2"})
+
+    response = client.get("/opds/token/not-the-real-token")
+
+    assert response.status_code == 404
+
+
+def test_token_root_feed_links_stay_within_token_scope(client):
+    pub = _make_publication(title="Ouest France")
+    token = _opds_token(client)
+
+    response = client.get(f"/opds/token/{token}")
+
+    feed = ET.fromstring(response.content)
+    entry_link = feed.find(f"{ATOM}entry").find(f"{ATOM}link")
+    assert entry_link.get("href") == f"/opds/token/{token}/publications/{pub}"
+    start_link = next(link for link in feed.findall(f"{ATOM}link") if link.get("rel") == "start")
+    assert start_link.get("href") == f"/opds/token/{token}"
+
+
+def test_token_publication_feed_download_link_stays_within_token_scope(client, tmp_path):
+    pub = _make_publication()
+    file_path = tmp_path / "issue.pdf"
+    file_path.write_bytes(b"content")
+    issue_id = _make_issue(pub, "2026-08-13", file_path)
+    token = _opds_token(client)
+
+    response = client.get(f"/opds/token/{token}/publications/{pub}")
+
+    link = ET.fromstring(response.content).find(f"{ATOM}entry").find(f"{ATOM}link")
+    assert link.get("href") == f"/opds/token/{token}/issues/{issue_id}/download"
+
+
+def test_token_download_works_with_no_auth(client, tmp_path):
+    pub = _make_publication()
+    file_path = tmp_path / "issue.pdf"
+    file_path.write_bytes(b"token download bytes")
+    issue_id = _make_issue(pub, "2026-08-13", file_path)
+    token = _opds_token(client)
+    client.patch("/settings", json={"admin_password": "hunter2"})
+
+    response = client.get(f"/opds/token/{token}/issues/{issue_id}/download")
+
+    assert response.status_code == 200
+    assert response.content == b"token download bytes"

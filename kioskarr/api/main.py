@@ -63,6 +63,10 @@ app.include_router(settings_api.router, dependencies=[Depends(require_auth)])
 # OPDS clients (Komga, Kavita, e-reader apps) are non-browser and can't do the
 # session-cookie login flow — this router accepts HTTP Basic too, not just a session.
 app.include_router(opds.router, dependencies=[Depends(require_auth_or_basic)])
+# Unprotected at the HTTP layer on purpose — every route validates its {token} path
+# param against AppSettings.opds_token itself. For clients that can't answer a 401
+# Basic Auth challenge at all (just send a bare URL), e.g. Mihon's Kavita extension.
+app.include_router(opds.token_router)
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 

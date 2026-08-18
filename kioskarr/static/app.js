@@ -58,11 +58,18 @@ function app() {
     settings: null,
     secrets: { prowlarr_api_key: "", qbittorrent_password: "", admin_password: "" },
     clearAdminPassword: false,
+    qrCodeVisible: false,
+    qrCodeSvg: "",
 
     form: {},
 
     get showLogin() {
       return this.auth.auth_required && !this.auth.authenticated;
+    },
+
+    get opdsTokenUrl() {
+      if (!this.settings?.opds_token) return "";
+      return `${window.location.origin}/opds/token/${this.settings.opds_token}`;
     },
 
     async init() {
@@ -335,6 +342,54 @@ function app() {
         await this.checkAuthStatus();
       } catch (e) {
         this.showToast(`Save failed: ${e.message}`, "error");
+      }
+    },
+
+    copyOpdsTokenUrl() {
+      if (!this.opdsTokenUrl) return;
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard
+          .writeText(this.opdsTokenUrl)
+          .then(() => this.showToast("OPDS URL copied", "success"))
+          .catch(() => this.showToast("Couldn't copy automatically — select the field and copy manually", "error"));
+      } else {
+        // Clipboard API needs a secure context (HTTPS or localhost) — common for a
+        // plain-HTTP LAN deployment. Fall back to just selecting the text for a
+        // manual Ctrl/Cmd+C instead of failing silently.
+        this.showToast("Clipboard needs HTTPS — select the field and copy manually (Ctrl/Cmd+C)", "error");
+      }
+    },
+
+    openQrCode() {
+      if (!this.opdsTokenUrl) return;
+      // qrcode.js (vendored, kioskarr/static/vendor/qrcode.js) — pure client-side,
+      // no server round-trip, no external service ever sees this URL.
+      const qr = qrcode(0, "M"); // 0 = auto-detect the smallest type that fits
+      qr.addData(this.opdsTokenUrl);
+      qr.make();
+      this.qrCodeSvg = qr.createSvgTag({ scalable: true });
+      this.qrCodeVisible = true;
+    },
+
+    closeQrCode() {
+      this.qrCodeVisible = false;
+    },
+
+    async regenerateOpdsToken() {
+      if (
+        !confirm(
+          "Generate a new OPDS token? Any reader app configured with the current URL will stop working until you update it there too."
+        )
+      )
+        return;
+      try {
+        this.settings = await apiFetch("/settings", {
+          method: "PATCH",
+          body: JSON.stringify({ regenerate_opds_token: true }),
+        });
+        this.showToast("OPDS token regenerated", "success");
+      } catch (e) {
+        this.showToast(`Failed to regenerate: ${e.message}`, "error");
       }
     },
   };

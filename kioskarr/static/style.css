@@ -207,6 +207,26 @@ tr:hover td { background: var(--panel-alt); }
 .login-card { width: 320px; }
 .login-card .brand { text-align: center; padding: 0 0 20px; }
 
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 24px;
+  width: 320px;
+}
+.modal-card .page-header { margin-bottom: 16px; }
+.qr-code-box { background: #fff; border-radius: 4px; padding: 12px; }
+.qr-code-box svg { display: block; width: 100%; height: auto; }
+
 .error-text { color: var(--danger); font-size: 13px; margin-bottom: 12px; }
 
 .form-section-title {
@@ -254,6 +274,9 @@ input:focus, select:focus, textarea:focus {
 
 .alias-row { display: flex; gap: 8px; margin-bottom: 8px; }
 .alias-row input { flex: 1; }
+
+.input-with-actions { display: flex; gap: 8px; }
+.input-with-actions input { flex: 1; min-width: 0; }
 
 .form-actions {
   display: flex;

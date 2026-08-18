@@ -139,6 +139,15 @@ class AppSettings(Base):
     admin_password_hash: Mapped[str] = mapped_column(String, default="")
     session_secret_key: Mapped[str] = mapped_column(String, default="")
 
+    # A per-install secret embedded directly in a URL (/opds/token/{opds_token}/...)
+    # for OPDS-adjacent clients that can't do an interactive Basic Auth prompt — e.g.
+    # Mihon's Kavita extension, repurposed as a generic OPDS client, only ever sends
+    # the bare URL with no way to answer a 401 challenge. Unlike admin_password_hash,
+    # always present (not an on/off switch) — same posture as Radarr/Sonarr's own API
+    # key. Visible in Settings (not write-only like the other secrets here) since the
+    # user has to copy it into the reader app's URL.
+    opds_token: Mapped[str] = mapped_column(String, default="")
+
     def require_prowlarr(self) -> None:
         if not self.prowlarr_api_key:
             raise RuntimeError("Prowlarr API key is not set — cannot search indexers.")

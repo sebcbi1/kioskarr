@@ -31,10 +31,16 @@ def ensure_app_settings_seeded(db: Session) -> AppSettings:
     automatically instead of needing to be retyped into the new Settings page."""
     app_settings = db.get(AppSettings, _SETTINGS_ID)
     if app_settings is not None:
-        # session_secret_key was added after some deployments already had a row —
-        # backfill it in place rather than requiring a migration.
+        # session_secret_key/opds_token were added after some deployments already had
+        # a row — backfill them in place rather than requiring a migration.
+        changed = False
         if not app_settings.session_secret_key:
             app_settings.session_secret_key = secrets.token_hex(32)
+            changed = True
+        if not app_settings.opds_token:
+            app_settings.opds_token = secrets.token_urlsafe(24)
+            changed = True
+        if changed:
             db.commit()
             db.refresh(app_settings)
         return app_settings
@@ -54,6 +60,7 @@ def ensure_app_settings_seeded(db: Session) -> AppSettings:
         default_min_seeders=env_settings.default_min_seeders,
         match_confidence_threshold=env_settings.match_confidence_threshold,
         session_secret_key=secrets.token_hex(32),
+        opds_token=secrets.token_urlsafe(24),
     )
     db.add(app_settings)
     db.commit()

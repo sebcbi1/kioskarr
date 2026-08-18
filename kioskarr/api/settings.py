@@ -1,3 +1,5 @@
+import secrets
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -26,6 +28,7 @@ class AppSettingsOut(BaseModel):
     match_confidence_threshold: float
     admin_username: str
     admin_password_set: bool
+    opds_token: str
 
 
 class AppSettingsUpdate(BaseModel):
@@ -43,6 +46,7 @@ class AppSettingsUpdate(BaseModel):
     match_confidence_threshold: float | None = None
     admin_username: str | None = None
     admin_password: str | None = None
+    regenerate_opds_token: bool | None = None
 
 
 def _to_out(app_settings: AppSettings) -> AppSettingsOut:
@@ -61,6 +65,7 @@ def _to_out(app_settings: AppSettings) -> AppSettingsOut:
         match_confidence_threshold=app_settings.match_confidence_threshold,
         admin_username=app_settings.admin_username,
         admin_password_set=bool(app_settings.admin_password_hash),
+        opds_token=app_settings.opds_token,
     )
 
 
@@ -81,6 +86,11 @@ def update_settings(payload: AppSettingsUpdate, db: Session = Depends(get_db)) -
     if "admin_password" in changes:
         new_password = changes.pop("admin_password")
         app_settings.admin_password_hash = hash_password(new_password) if new_password else ""
+
+    # Also not a column — a one-shot action, not a value to store. Any reader app
+    # configured with the old token URL stops working until updated with the new one.
+    if changes.pop("regenerate_opds_token", None):
+        app_settings.opds_token = secrets.token_urlsafe(24)
 
     for field, value in changes.items():
         setattr(app_settings, field, value)

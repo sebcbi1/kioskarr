@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Kioskarr</title>
   <link rel="stylesheet" href="/static/style.css" />
+  <script src="/static/vendor/qrcode.js"></script>
   <script defer src="/static/vendor/alpine.min.js"></script>
 </head>
 <body>
@@ -25,6 +26,17 @@
             <div class="error-text" x-show="loginError" x-text="loginError"></div>
             <button type="submit" class="btn btn-primary" style="width: 100%;">Log In</button>
           </form>
+        </div>
+      </div>
+    </template>
+    <template x-if="qrCodeVisible">
+      <div class="modal-overlay" @click.self="closeQrCode()">
+        <div class="modal-card">
+          <div class="page-header">
+            <h1>Scan to open</h1>
+            <button type="button" class="btn btn-sm" @click="closeQrCode()">Close</button>
+          </div>
+          <div class="qr-code-box" x-html="qrCodeSvg"></div>
         </div>
       </div>
     </template>
@@ -280,6 +292,22 @@
               <div class="checkbox-field field" x-show="settings.admin_password_set">
                 <input type="checkbox" id="clear-admin-password" x-model="clearAdminPassword" />
                 <label for="clear-admin-password">Remove password (disable login again)</label>
+              </div>
+
+              <div class="form-section-title">OPDS (external readers)</div>
+              <div class="field">
+                <label>Token-based OPDS URL</label>
+                <div class="input-with-actions">
+                  <input type="text" readonly onclick="this.select()" :value="opdsTokenUrl" />
+                  <button type="button" class="btn btn-sm" @click="copyOpdsTokenUrl()">Copy</button>
+                  <button type="button" class="btn btn-sm" @click="openQrCode()">QR</button>
+                  <button type="button" class="btn btn-sm btn-danger" @click="regenerateOpdsToken()">Reload</button>
+                </div>
+                <span class="hint">For OPDS clients that can't do an interactive login prompt (e.g. Mihon's Kavita
+                  extension, repurposed as a generic OPDS client). Anyone with this URL has full read access to
+                  your library, no password needed — treat it like one. Every other OPDS client (KOReader, etc.)
+                  should just use <span class="mono">/opds</span> with your normal login instead. "Reload"
+                  generates a new token — any reader app using the old URL stops working until updated.</span>
               </div>
 
               <div class="form-actions">
