@@ -40,6 +40,16 @@ ET.register_namespace("", ATOM_NS)  # unprefixed Atom elements, matching OPDS co
 NAV_TYPE = "application/atom+xml;profile=opds-catalog;kind=navigation"
 ACQ_TYPE = "application/atom+xml;profile=opds-catalog;kind=acquisition"
 
+# Real Kavita/Komga feeds always include a cover image per entry — some OPDS clients
+# built around a manga-style cover grid (e.g. Mihon's Kavita extension) may not render
+# an entry at all without one. Kioskarr doesn't generate real covers yet (first-page
+# extraction is a separate, bigger piece of work); this static placeholder lets us
+# confirm that's actually the reason before building that. Served from /static, which
+# is never auth-gated — the placeholder image itself isn't sensitive, only the actual
+# issue files are.
+PLACEHOLDER_COVER_PATH = "/static/opds-placeholder-cover.png"
+PLACEHOLDER_COVER_TYPE = "image/png"
+
 # Modern, non-deprecated MIME types (application/x-cbz|x-cbr were deprecated by IANA
 # in 2017 and some current OPDS readers no longer recognize them).
 _EXTENSION_MIME_TYPES = {
@@ -64,6 +74,23 @@ def _rfc3339(dt: datetime) -> str:
 
 def _tag(name: str) -> str:
     return f"{{{ATOM_NS}}}{name}"
+
+
+def _add_cover_links(entry: ET.Element) -> None:
+    ET.SubElement(
+        entry,
+        _tag("link"),
+        rel="http://opds-spec.org/image",
+        href=PLACEHOLDER_COVER_PATH,
+        type=PLACEHOLDER_COVER_TYPE,
+    )
+    ET.SubElement(
+        entry,
+        _tag("link"),
+        rel="http://opds-spec.org/image/thumbnail",
+        href=PLACEHOLDER_COVER_PATH,
+        type=PLACEHOLDER_COVER_TYPE,
+    )
 
 
 def _feed_root(feed_id: str, title: str, self_href: str, self_type: str, root_href: str) -> ET.Element:
@@ -99,6 +126,7 @@ def _build_root_feed(db: Session, base: str) -> Response:
         ET.SubElement(
             entry, _tag("link"), rel="subsection", href=f"{base}/publications/{pub.id}", type=ACQ_TYPE
         )
+        _add_cover_links(entry)
     return Response(content=_serialize(feed), media_type=NAV_TYPE)
 
 
@@ -133,6 +161,7 @@ def _build_publication_feed(db: Session, base: str, publication_id: int) -> Resp
             href=f"{base}/issues/{issue.id}/download",
             type=_mime_type_for(issue.file_path),
         )
+        _add_cover_links(entry)
     return Response(content=_serialize(feed), media_type=ACQ_TYPE)
 
 

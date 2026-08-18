@@ -86,6 +86,22 @@ def test_root_feed_lists_one_entry_per_publication(client):
     assert any(f"/opds/publications/{pub2}" in e.find(f"{ATOM}link").get("href") for e in entries)
 
 
+def test_root_feed_entries_include_placeholder_cover_links(client):
+    _make_publication()
+
+    response = client.get("/opds")
+
+    entry = ET.fromstring(response.content).find(f"{ATOM}entry")
+    links = entry.findall(f"{ATOM}link")
+    rels = {link.get("rel") for link in links}
+    assert "http://opds-spec.org/image" in rels
+    assert "http://opds-spec.org/image/thumbnail" in rels
+    for link in links:
+        if link.get("rel", "").startswith("http://opds-spec.org/image"):
+            assert link.get("href") == "/static/opds-placeholder-cover.png"
+            assert link.get("type") == "image/png"
+
+
 def test_publication_feed_lists_issues_with_correct_mime_types(client, tmp_path):
     pub = _make_publication()
     pdf_path = tmp_path / "issue.pdf"
@@ -108,6 +124,20 @@ def test_publication_feed_lists_issues_with_correct_mime_types(client, tmp_path)
     }
     assert links_by_type["application/pdf"].get("rel") == "http://opds-spec.org/acquisition"
     assert "vnd.comicbook+zip" in links_by_type["application/vnd.comicbook+zip"].get("type")
+
+
+def test_publication_feed_issue_entries_include_placeholder_cover_links(client, tmp_path):
+    pub = _make_publication()
+    file_path = tmp_path / "issue.pdf"
+    file_path.write_bytes(b"content")
+    _make_issue(pub, "2026-08-13", file_path)
+
+    response = client.get(f"/opds/publications/{pub}")
+
+    entry = ET.fromstring(response.content).find(f"{ATOM}entry")
+    rels = {link.get("rel") for link in entry.findall(f"{ATOM}link")}
+    assert "http://opds-spec.org/image" in rels
+    assert "http://opds-spec.org/image/thumbnail" in rels
 
 
 def test_publication_feed_unknown_mime_falls_back_to_octet_stream(client, tmp_path):
