@@ -62,7 +62,15 @@ def resolve_review_item(
         raise HTTPException(404, "Publication not found")
 
     source_path = Path(payload.file_path) if payload.file_path else Path(item.file_path)
-    import_issue(db, item.grab, source_path, payload.identifier, publication)
+    try:
+        import_issue(db, item.grab, source_path, payload.identifier, publication)
+    except OSError as exc:
+        raise HTTPException(
+            400,
+            f"Couldn't import from {source_path}: {exc}. This path is resolved from inside "
+            "this process/container, not necessarily what qBittorrent's own UI shows — e.g. "
+            "/downloads/... here if that's how it's mounted, not the host's own /mnt/... path.",
+        ) from exc
     item.resolved = True
     db.commit()
     db.refresh(item)

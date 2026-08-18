@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from kioskarr.app_settings import ensure_app_settings_seeded
+from kioskarr.app_settings import ensure_app_settings_seeded, get_app_settings
 from kioskarr.db import Base
 from kioskarr.jobs.import_job import _parse_file_entry, _select_issue_file, run_import_job
 from kioskarr.models import FormatPreference, Grab, GrabStatus, Publication, PublicationType, ReviewItem
@@ -248,3 +248,79 @@ def test_run_import_job_flags_multi_issue_archive_for_review_instead_of_importin
 
     review_item = db_session.query(ReviewItem).filter(ReviewItem.grab_id == grab.id).one()
     assert "multiple" in review_item.reason.lower()
+
+
+def test_run_import_job_flags_missing_source_file_instead_of_crashing_whole_tick(db_session, tmp_path):
+    # Real bug found live: a confident single-file match whose source_path doesn't
+    # actually exist (moved, wrong mount, permissions) raised OSError out of
+    # import_issue() uncaught — crashing the whole scheduled tick, leaving every
+    # other publication's pending grabs stuck too, not just this one.
+
+    # db_session seeds AppSettings from the real .env (qbittorrent_downloads_local_path
+    # included) — clear it so _downloads_root() actually uses each torrent's own
+    # save_path below instead of silently overriding both with the real env value.
+    get_app_settings(db_session).qbittorrent_downloads_local_path = ""
+    db_session.commit()
+
+    broken_pub = Publication(
+        title="Broken Publication", target_dir=str(tmp_path / "library" / "broken")
+    )
+    ok_pub = Publication(title="Wired USA", target_dir=str(tmp_path / "library" / "wired"))
+    db_session.add_all([broken_pub, ok_pub])
+    db_session.commit()
+
+    broken_grab = Grab(
+        publication_id=broken_pub.id,
+        release_title="Broken.Publication.2026-08-17",
+        release_guid="guid-broken",
+        identifier="2026-08-17",
+        torrent_hash="broken-hash",
+        status=GrabStatus.downloading,
+    )
+    ok_grab = Grab(
+        publication_id=ok_pub.id,
+        release_title="Wired USA - August 2026",
+        release_guid="guid-ok",
+        identifier="2026-08",
+        torrent_hash="ok-hash",
+        status=GrabStatus.downloading,
+    )
+    db_session.add_all([broken_grab, ok_grab])
+    db_session.commit()
+
+    # The "ok" torrent's file genuinely exists on disk; the "broken" one's doesn't
+    # (simulating a moved/deleted file, or a downloads-local-path pointed wrong).
+    real_downloads = tmp_path / "downloads"
+    real_downloads.mkdir()
+    (real_downloads / "Wired USA - August 2026.pdf").write_bytes(b"real file content")
+
+    torrents = [
+        {
+            "hash": "broken-hash",
+            "name": "Broken.Publication.2026-08-17",
+            "progress": 1,
+            "save_path": str(tmp_path / "this-download-dir-does-not-exist"),
+        },
+        {
+            "hash": "ok-hash",
+            "name": "Wired USA - August 2026",
+            "progress": 1,
+            "save_path": str(real_downloads),
+        },
+    ]
+    files_by_hash = {
+        "broken-hash": [{"name": "Broken Publication 2026-08-17.pdf", "size": 1000}],
+        "ok-hash": [{"name": "Wired USA - August 2026.pdf", "size": 20_000_000}],
+    }
+    qbt = FakeQbt(torrents=torrents, files_by_hash=files_by_hash)
+
+    result = run_import_job(db_session, qbt)
+
+    # The broken grab got flagged, not left crashing the whole job...
+    assert result["flagged_for_review"] == [broken_grab.id]
+    db_session.refresh(broken_grab)
+    assert broken_grab.status == GrabStatus.needs_review
+    # ...and the other publication's grab still imported successfully in the same run.
+    assert len(result["imported"]) == 1
+    db_session.refresh(ok_grab)
+    assert ok_grab.status == GrabStatus.imported

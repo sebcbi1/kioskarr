@@ -235,7 +235,15 @@ def run_import_job(db: Session, qbt: QBittorrentClient) -> dict:
             flagged_for_review.append(grab.id)
             continue
 
-        issue = import_issue(db, grab, source_path, parsed.identifier, publication)
+        try:
+            issue = import_issue(db, grab, source_path, parsed.identifier, publication)
+        except OSError as exc:
+            # A single missing/unreachable file (moved, wrong mount, permissions) shouldn't
+            # crash the whole tick and leave every other publication's pending grabs stuck.
+            logger.exception("Failed to import grab %s from %s", grab.id, source_path)
+            _flag_for_review(db, grab, str(source_path), f"import failed: {exc}")
+            flagged_for_review.append(grab.id)
+            continue
         imported.append(issue.file_path)
 
     return {"imported": imported, "flagged_for_review": flagged_for_review}
