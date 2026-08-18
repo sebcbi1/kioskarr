@@ -1,12 +1,15 @@
 import io
 import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 ATOM = "{http://www.w3.org/2005/Atom}"
 PLACEHOLDER_COVER_FILE = Path(__file__).resolve().parent.parent / "kioskarr" / "static" / "opds-placeholder-cover.jpg"
+_CBR_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "issue.cbr"
 
 
 @pytest.fixture
@@ -244,6 +247,31 @@ def _write_real_cbz(path, image_names=("001.jpg", "002.jpg")):
             archive.writestr(name, buf.getvalue())
 
 
+def _write_real_epub(path):
+    container_xml = (
+        '<?xml version="1.0"?>'
+        '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0">'
+        '<rootfiles><rootfile full-path="OEBPS/content.opf" '
+        'media-type="application/oebps-package+xml"/></rootfiles></container>'
+    )
+    opf = (
+        '<?xml version="1.0"?>'
+        '<package xmlns="http://www.idpf.org/2007/opf" version="3.0">'
+        '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Test</dc:title></metadata>'
+        '<manifest><item id="cover-img" href="cover.jpg" media-type="image/jpeg" '
+        'properties="cover-image"/>'
+        '<item id="page1" href="page1.xhtml" media-type="application/xhtml+xml"/></manifest>'
+        '<spine><itemref idref="page1"/></spine></package>'
+    )
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("META-INF/container.xml", container_xml)
+        archive.writestr("OEBPS/content.opf", opf)
+        archive.writestr("OEBPS/page1.xhtml", "<html><body>hi</body></html>")
+        buf = io.BytesIO()
+        Image.new("RGB", (60, 90), color=(50, 60, 70)).save(buf, "JPEG")
+        archive.writestr("OEBPS/cover.jpg", buf.getvalue())
+
+
 def test_issue_cover_generates_real_jpeg_from_pdf(client, tmp_path):
     from PIL import Image
 
@@ -279,15 +307,48 @@ def test_issue_cover_generates_real_jpeg_from_cbz(client, tmp_path):
 
 def test_issue_cover_falls_back_to_placeholder_for_unsupported_format(client, tmp_path):
     pub = _make_publication()
-    epub_path = tmp_path / "issue.epub"
-    epub_path.write_bytes(b"not really an epub")
-    issue_id = _make_issue(pub, "2026-08-13", epub_path)
+    mobi_path = tmp_path / "issue.mobi"
+    mobi_path.write_bytes(b"not really a mobi")
+    issue_id = _make_issue(pub, "2026-08-13", mobi_path)
 
     response = client.get(f"/opds/issues/{issue_id}/cover")
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/jpeg"
     assert response.content == PLACEHOLDER_COVER_FILE.read_bytes()
+
+
+def test_issue_cover_generates_real_jpeg_from_epub(client, tmp_path):
+    from PIL import Image
+
+    pub = _make_publication()
+    epub_path = tmp_path / "issue.epub"
+    _write_real_epub(epub_path)
+    issue_id = _make_issue(pub, "2026-08-13", epub_path)
+
+    response = client.get(f"/opds/issues/{issue_id}/cover")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    image = Image.open(io.BytesIO(response.content))
+    assert image.format == "JPEG"
+
+
+@pytest.mark.skipif(not _CBR_FIXTURE.is_file(), reason="CBR fixture not present")
+def test_issue_cover_generates_real_jpeg_from_cbr(client, tmp_path):
+    from PIL import Image
+
+    pub = _make_publication()
+    cbr_path = tmp_path / "issue.cbr"
+    cbr_path.write_bytes(_CBR_FIXTURE.read_bytes())
+    issue_id = _make_issue(pub, "2026-08-13", cbr_path)
+
+    response = client.get(f"/opds/issues/{issue_id}/cover")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    image = Image.open(io.BytesIO(response.content))
+    assert image.format == "JPEG"
 
 
 def test_issue_cover_falls_back_to_placeholder_for_corrupt_pdf(client, tmp_path):
@@ -336,6 +397,21 @@ def test_issue_cover_by_token_works_with_no_auth(client, tmp_path):
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/jpeg"
+
+
+@pytest.mark.parametrize("format_preference", ["pdf", "cbr", "cbz", "epub", "mobi", "any"])
+def test_create_publication_accepts_every_format_preference(client, tmp_path, format_preference):
+    response = client.post(
+        "/publications",
+        json={
+            "title": "Ouest France",
+            "target_dir": str(tmp_path),
+            "format_preference": format_preference,
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["format_preference"] == format_preference
 
 
 def test_opds_open_when_no_password_set(client):

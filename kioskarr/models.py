@@ -15,6 +15,9 @@ class PublicationType(str, enum.Enum):
 class FormatPreference(str, enum.Enum):
     pdf = "pdf"
     cbr = "cbr"
+    cbz = "cbz"
+    epub = "epub"
+    mobi = "mobi"
     any = "any"
 
 

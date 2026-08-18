@@ -146,7 +146,8 @@ rely on normal file permissions instead.
 - `POST /publications` — add a publication to watch: `title`, `target_dir`, and optionally
   `type` (`magazine`/`newspaper`), `aliases` (alternate names uploaders use — punctuation like
   "Ouest-France" vs "Ouest France" doesn't need to match exactly, both sides are normalized
-  the same way before comparing), `format_preference` (`pdf`/`cbr`/`any`), `min_seeders`,
+  the same way before comparing), `format_preference` (`pdf`/`cbr`/`cbz`/`epub`/`mobi`/`any`),
+  `min_seeders`,
   `monitored`, `grab_last_n` (see Cold start below).
 - `GET /publications`, `GET/PATCH/DELETE /publications/{id}` — `PATCH` also accepts
   `baseline_identifier` to manually set/reset the cold-start floor (see below).
@@ -200,17 +201,26 @@ invalidating the old URL immediately) buttons next to it. Anyone with the token 
 full read access to your library, no password needed, so treat it like one.
 
 **Cover images**: `GET /opds/issues/{id}/cover` (and its token-scoped equivalent) serves a
-real cover — page 1 rendered for a PDF, the first image (by name) for a CBZ — generated the
-first time it's requested and cached from then on. The cover is saved **right next to the
-issue file itself** (same name, `.jpg` extension, e.g. `2026-08-17 - Ouest France.pdf` →
+real cover — page 1 rendered for a PDF, the first image (by name) for a CBZ or CBR, the
+manifest's declared cover image for an EPUB (falling back to the first image by name if
+neither the EPUB3 nor EPUB2 cover convention is declared) — generated the first time it's
+requested and cached from then on. The cover is saved **right next to the issue file
+itself** (same name, `.jpg` extension, e.g. `2026-08-17 - Ouest France.pdf` →
 `2026-08-17 - Ouest France.jpg`), not in a separate cache directory — no extra setting
 needed, and it doubles as a real cover for Komga/Kavita/Calibre if they ever scan a
 publication's `target_dir` directly instead of (or alongside) OPDS, since that's the same
-same-name-cover convention those tools already look for. CBR/EPUB/MOBI aren't supported yet,
-and any extraction failure (a corrupt file, etc.) falls back to a generic placeholder image
-instead — a missing cover is never a hard error for the feed. Every entry in the root
-feed links to its most-recently-imported issue's cover as a stand-in "series" cover, since a
-publication has no file of its own to extract from.
+same-name-cover convention those tools already look for. MOBI isn't supported, and any
+extraction failure (a corrupt file, etc.) falls back to a generic placeholder image instead
+— a missing cover is never a hard error for the feed. Every entry in the root feed links to
+its most-recently-imported issue's cover as a stand-in "series" cover, since a publication
+has no file of its own to extract from.
+
+CBR cover extraction needs the `unar` binary on the host (The Unarchiver's CLI engine —
+LGPL, a clean-room RAR implementation with no unRAR-derived licensing restrictions, unlike
+the official `unrar` tool). Already installed in the Docker image; if you're running outside
+Docker, install it yourself (`brew install unar` on macOS, `apt install unar` on
+Debian/Ubuntu). If it's missing, CBR cover extraction just fails like any other extraction
+error and falls back to the placeholder — never a hard error.
 
 ### Cold start (avoiding a back-catalog dump on day one)
 
