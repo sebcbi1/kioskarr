@@ -2,10 +2,11 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from kioskarr.app_settings import ensure_app_settings_seeded
+from kioskarr.app_settings import ensure_app_settings_seeded, get_app_settings
 from kioskarr.db import Base
-from kioskarr.jobs.search_job import run_search_job
+from kioskarr.jobs.search_job import grab_release_candidate, run_search_job
 from kioskarr.models import Grab, GrabStatus, Publication, PublicationType, ReviewItem
+from kioskarr.parser import parse
 from kioskarr.prowlarr_client import Release
 
 
@@ -288,3 +289,20 @@ def test_does_not_restrict_when_ambiguous(db_session):
 
     assert len(grabs) == 1
     assert qbt.set_priorities_calls == []
+
+
+def test_grab_release_candidate_bypasses_all_gating(db_session):
+    # grab_release_candidate is the mechanics the manual-grab API endpoint
+    # calls directly, with none of _eligible_candidates's gating upstream of
+    # it — a release that would never pass the automatic threshold/seeder
+    # checks must still get grabbed when called this way.
+    pub = _publication(db_session, min_seeders=999)
+    release = _release("Totally Unrelated Zine - August 2026.pdf", "guid-x", seeders=0)
+    parsed = parse(release.title)
+    qbt = FakeQbt()
+    app_settings = get_app_settings(db_session)
+
+    grab = grab_release_candidate(db_session, qbt, pub, release, parsed, set(), app_settings)
+
+    assert grab.status == GrabStatus.downloading
+    assert qbt.added == [(release.download_url, "kioskarr")]

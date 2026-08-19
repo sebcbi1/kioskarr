@@ -139,6 +139,7 @@ tr:hover td { background: var(--panel-alt); }
 .badge-downloading { background: rgba(61, 139, 253, 0.2); color: var(--accent); }
 .badge-needs_review { background: rgba(224, 160, 48, 0.2); color: var(--warning); }
 .badge-failed { background: rgba(224, 82, 96, 0.2); color: var(--danger); }
+.badge-warn { background: rgba(224, 160, 48, 0.2); color: var(--warning); }
 
 .btn {
   display: inline-block;
@@ -318,6 +319,11 @@ input:focus, select:focus, textarea:focus {
   font-size: 13px;
   color: var(--text-dim);
 }
+
+.preview-box { margin-bottom: 16px; }
+.preview-actions { margin-bottom: 10px; }
+.preview-box .hint { display: block; margin-bottom: 10px; font-size: 12px; color: var(--text-dim); }
+.preview-box .empty-state { padding: 20px; }
 
 .filter-bar { margin-bottom: 16px; display: flex; gap: 10px; }
 .filter-bar select { width: auto; }

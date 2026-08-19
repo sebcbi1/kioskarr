@@ -44,3 +44,21 @@ def issue_already_owned(db_session: Session, publication_id: int, identifier: st
         .first()
         is not None
     )
+
+
+def is_already_in_flight(db_session: Session, publication_id: int, identifier: str) -> bool:
+    # needs_review counts as "already handled" too — otherwise a stuck grab
+    # (e.g. the duplicate-torrent case) would get re-attempted and re-flagged
+    # every single search cycle instead of waiting for manual resolution.
+    from kioskarr.models import Grab, GrabStatus
+
+    return (
+        db_session.query(Grab)
+        .filter(
+            Grab.publication_id == publication_id,
+            Grab.identifier == identifier,
+            Grab.status.in_([GrabStatus.downloading, GrabStatus.completed, GrabStatus.needs_review]),
+        )
+        .first()
+        is not None
+    )

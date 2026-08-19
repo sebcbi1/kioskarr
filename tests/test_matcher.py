@@ -3,8 +3,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from kioskarr.db import Base
-from kioskarr.matcher import is_confident_match, issue_already_owned, title_match_score
-from kioskarr.models import Issue, Publication, PublicationType
+from kioskarr.matcher import is_already_in_flight, is_confident_match, issue_already_owned, title_match_score
+from kioskarr.models import Grab, GrabStatus, Issue, Publication, PublicationType
 from kioskarr.parser import parse
 
 
@@ -86,3 +86,30 @@ def test_issue_already_owned(db_session):
 
     assert issue_already_owned(db_session, pub.id, "2026-08") is True
     assert issue_already_owned(db_session, pub.id, "2026-09") is False
+
+
+def test_is_already_in_flight(db_session):
+    pub = Publication(
+        title="Wired USA",
+        type=PublicationType.magazine,
+        aliases=[],
+        target_dir="/library/wired",
+    )
+    db_session.add(pub)
+    db_session.commit()
+
+    assert is_already_in_flight(db_session, pub.id, "2026-08") is False
+
+    db_session.add(
+        Grab(
+            publication_id=pub.id,
+            release_title="Wired USA - Aug 2026.pdf",
+            release_guid="g1",
+            identifier="2026-08",
+            status=GrabStatus.downloading,
+        )
+    )
+    db_session.commit()
+
+    assert is_already_in_flight(db_session, pub.id, "2026-08") is True
+    assert is_already_in_flight(db_session, pub.id, "2026-09") is False

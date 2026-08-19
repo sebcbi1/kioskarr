@@ -62,6 +62,8 @@ function app() {
     qrCodeSvg: "",
 
     form: {},
+    previewResults: null,
+    previewLoading: false,
 
     get showLogin() {
       return this.auth.auth_required && !this.auth.authenticated;
@@ -181,6 +183,8 @@ function app() {
 
     // --- Publication form (create + edit) ---
     async enterPublicationForm(id) {
+      this.previewResults = null;
+      this.previewLoading = false;
       if (id) {
         try {
           const pub = await apiFetch(`/publications/${id}`);
@@ -250,6 +254,71 @@ function app() {
       } catch (e) {
         this.showToast(`Reset failed: ${e.message}`, "error");
       }
+    },
+
+    async previewSearch() {
+      const title = (this.form.title || "").trim();
+      if (!title) {
+        this.showToast("Enter a title before previewing", "error");
+        return;
+      }
+      this.previewLoading = true;
+      try {
+        const aliases = this.form.aliases.map((a) => a.trim()).filter(Boolean);
+        const params = new URLSearchParams({ title });
+        aliases.forEach((a) => params.append("aliases", a));
+        if (this.form.id) params.set("publication_id", this.form.id);
+        const results = await apiFetch(`/search/preview?${params.toString()}`);
+        this.previewResults = results.map((r) => ({ ...r, _grabbing: false, _grabbed: false }));
+      } catch (e) {
+        this.showToast(`Preview failed: ${e.message}`, "error");
+      } finally {
+        this.previewLoading = false;
+      }
+    },
+
+    async grabRelease(result) {
+      if (!this.form.id) return;
+      result._grabbing = true;
+      try {
+        const payload = {
+          title: result.title,
+          guid: result.guid,
+          download_url: result.download_url,
+          indexer_id: result.indexer_id,
+          indexer_name: result.indexer_name,
+          seeders: result.seeders,
+          size: result.size,
+          info_hash: result.info_hash,
+        };
+        const grab = await apiFetch(`/publications/${this.form.id}/grab-release`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        result._grabbed = true;
+        const warning = grab.already_owned
+          ? " (already owned)"
+          : grab.already_in_flight
+            ? " (already in flight)"
+            : "";
+        this.showToast(`Grabbed: ${grab.release_title}${warning}`, "success");
+      } catch (e) {
+        this.showToast(`Grab failed: ${e.message}`, "error");
+      } finally {
+        result._grabbing = false;
+      }
+    },
+
+    formatSize(bytes) {
+      if (bytes == null) return "—";
+      const units = ["B", "KB", "MB", "GB"];
+      let value = bytes;
+      let i = 0;
+      while (value >= 1024 && i < units.length - 1) {
+        value /= 1024;
+        i++;
+      }
+      return `${value.toFixed(1)} ${units[i]}`;
     },
 
     // --- Review queue ---

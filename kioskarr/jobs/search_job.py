@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from kioskarr.app_settings import get_app_settings
 from kioskarr.jobs.import_job import _select_issue_file
-from kioskarr.matcher import is_confident_match, issue_already_owned
+from kioskarr.matcher import is_already_in_flight, is_confident_match, issue_already_owned
 from kioskarr.models import AppSettings, Grab, GrabStatus, Publication, ReviewItem
 from kioskarr.parser import ParsedRelease, identifier_sort_key, is_identifier_newer, parse
 from kioskarr.prowlarr_client import ProwlarrClient, Release
@@ -39,20 +39,19 @@ def search_with_fallback(prowlarr: ProwlarrClient, query: str) -> list:
     return prowlarr.search(query)
 
 
-def _already_in_flight(db: Session, publication_id: int, identifier: str) -> bool:
-    # needs_review counts as "already handled" too — otherwise a stuck grab
-    # (e.g. the duplicate-torrent case) would get re-attempted and re-flagged
-    # every single search cycle instead of waiting for manual resolution.
-    return (
-        db.query(Grab)
-        .filter(
-            Grab.publication_id == publication_id,
-            Grab.identifier == identifier,
-            Grab.status.in_([GrabStatus.downloading, GrabStatus.completed, GrabStatus.needs_review]),
-        )
-        .first()
-        is not None
-    )
+def collect_candidates(prowlarr: ProwlarrClient, search_terms: list[str]) -> list[Release]:
+    """Search every term (title + aliases) and dedupe by Prowlarr's own guid —
+    the same release commonly comes back once per alias/title match."""
+    seen_guids: set[str] = set()
+    candidates: list[Release] = []
+    for term in search_terms:
+        for release in search_with_fallback(prowlarr, term):
+            if release.guid and release.guid in seen_guids:
+                continue
+            if release.guid:
+                seen_guids.add(release.guid)
+            candidates.append(release)
+    return candidates
 
 
 def _restrict_to_matched_file(
@@ -106,7 +105,7 @@ def _eligible_candidates(
             continue
         if issue_already_owned(db, publication.id, parsed.identifier):
             continue
-        if _already_in_flight(db, publication.id, parsed.identifier):
+        if is_already_in_flight(db, publication.id, parsed.identifier):
             continue
         if (release.seeders or 0) < min_seeders:
             continue
@@ -142,6 +141,96 @@ def _best_per_identifier(
     return best
 
 
+def grab_release_candidate(
+    db: Session,
+    qbt: QBittorrentClient,
+    publication: Publication,
+    release: Release,
+    parsed: ParsedRelease,
+    existing_hashes: set[str],
+    app_settings: AppSettings,
+) -> Grab:
+    """Actually add the torrent and record a Grab (+ ReviewItem if it turns out
+    to already exist in qBittorrent) for one already-chosen candidate.
+
+    Shared by the automatic job's per-publication loop and the manual "Grab"
+    action from the search preview panel — the manual action bypasses every
+    bit of the automatic job's eligibility gating (confidence threshold,
+    min_seeders, cold-start baseline) upstream of this call, but still needs
+    the exact same "how do we actually grab this release" mechanics. Any
+    failure from qbt.add_torrent propagates to the caller, which decides
+    whether to skip-and-continue (the batch job) or surface an error (a
+    single manual grab).
+    """
+    known_duplicate = bool(release.info_hash) and release.info_hash in existing_hashes
+
+    if known_duplicate:
+        # Already know this exact torrent exists somewhere in qBittorrent —
+        # no point adding it (a no-op anyway) or waiting on add_torrent's
+        # hash-detection polling.
+        torrent_hash = None
+    else:
+        returned_hash = qbt.add_torrent(release.download_url, category=app_settings.qbittorrent_category)
+        # Prefer Prowlarr's own infoHash — known immediately, no polling
+        # needed. Falls back to add_torrent's polling-based detection for
+        # indexers that don't populate infoHash.
+        torrent_hash = release.info_hash or returned_hash
+        if torrent_hash:
+            existing_hashes.add(torrent_hash)
+
+    # No hash to work with — either a known duplicate, or no new hash
+    # appeared after add_torrent's polling, most likely because this is a
+    # duplicate qBittorrent didn't tell us about directly. Flag it now rather
+    # than leaving a "downloading" Grab that can never be matched back to a
+    # torrent and would sit stuck forever.
+    status = GrabStatus.downloading if torrent_hash else GrabStatus.needs_review
+
+    if torrent_hash:
+        _restrict_to_matched_file(qbt, torrent_hash, publication, app_settings.match_confidence_threshold)
+
+    grab = Grab(
+        publication_id=publication.id,
+        release_title=release.title,
+        release_guid=release.guid,
+        identifier=parsed.identifier,
+        torrent_hash=torrent_hash,
+        indexer_id=str(release.indexer_id) if release.indexer_id is not None else None,
+        status=status,
+    )
+    db.add(grab)
+    db.flush()  # assign grab.id for the ReviewItem FK below
+
+    if torrent_hash is None:
+        if known_duplicate:
+            logger.info(
+                "%s for %s is already in qBittorrent elsewhere (hash %s) — "
+                "flagged for review instead of re-adding.",
+                release.title,
+                publication.title,
+                release.info_hash,
+            )
+        else:
+            logger.warning(
+                "Added %s for %s but no new torrent hash appeared — flagged for review.",
+                release.title,
+                publication.title,
+            )
+        db.add(
+            ReviewItem(
+                grab_id=grab.id,
+                file_path="",
+                reason=(
+                    "This torrent is already present elsewhere in qBittorrent — likely "
+                    "a duplicate of a torrent already present. Find the existing file "
+                    "and resolve with its path."
+                ),
+                candidate_publication_id=publication.id,
+            )
+        )
+
+    return grab
+
+
 def run_search_job(
     db: Session,
     prowlarr: ProwlarrClient,
@@ -168,15 +257,7 @@ def run_search_job(
     existing_hashes = {t["hash"] for t in qbt.list_torrents()}
 
     for publication in targets:
-        seen_guids: set[str] = set()
-        candidates = []
-        for term in publication.all_search_terms():
-            for release in search_with_fallback(prowlarr, term):
-                if release.guid and release.guid in seen_guids:
-                    continue
-                if release.guid:
-                    seen_guids.add(release.guid)
-                candidates.append(release)
+        candidates = collect_candidates(prowlarr, publication.all_search_terms())
 
         eligible = _eligible_candidates(db, publication, candidates, app_settings)
         eligible = _best_per_identifier(eligible, indexer_priorities)
@@ -192,83 +273,13 @@ def run_search_job(
             to_grab = eligible
 
         for release, parsed in to_grab:
-            known_duplicate = bool(release.info_hash) and release.info_hash in existing_hashes
-
-            if known_duplicate:
-                # Already know this exact torrent exists somewhere in
-                # qBittorrent — no point adding it (a no-op anyway) or
-                # waiting on add_torrent's hash-detection polling.
-                torrent_hash = None
-            else:
-                try:
-                    returned_hash = qbt.add_torrent(
-                        release.download_url, category=app_settings.qbittorrent_category
-                    )
-                except Exception:
-                    logger.exception(
-                        "Failed to add torrent for %s: %s", publication.title, release.title
-                    )
-                    continue
-                # Prefer Prowlarr's own infoHash — known immediately, no polling
-                # needed. Falls back to add_torrent's polling-based detection
-                # for indexers that don't populate infoHash.
-                torrent_hash = release.info_hash or returned_hash
-                if torrent_hash:
-                    existing_hashes.add(torrent_hash)
-
-            # No hash to work with — either a known duplicate, or (same as
-            # before) no new hash appeared after add_torrent's polling, most
-            # likely because this is a duplicate qBittorrent didn't tell us
-            # about directly. Flag it now rather than leaving a "downloading"
-            # Grab that can never be matched back to a torrent and would sit
-            # stuck forever.
-            status = GrabStatus.downloading if torrent_hash else GrabStatus.needs_review
-
-            if torrent_hash:
-                _restrict_to_matched_file(
-                    qbt, torrent_hash, publication, app_settings.match_confidence_threshold
+            try:
+                grab = grab_release_candidate(
+                    db, qbt, publication, release, parsed, existing_hashes, app_settings
                 )
-
-            grab = Grab(
-                publication_id=publication.id,
-                release_title=release.title,
-                release_guid=release.guid,
-                identifier=parsed.identifier,
-                torrent_hash=torrent_hash,
-                indexer_id=str(release.indexer_id) if release.indexer_id is not None else None,
-                status=status,
-            )
-            db.add(grab)
-            db.flush()  # assign grab.id for the ReviewItem FK below
-
-            if torrent_hash is None:
-                if known_duplicate:
-                    logger.info(
-                        "%s for %s is already in qBittorrent elsewhere (hash %s) — "
-                        "flagged for review instead of re-adding.",
-                        release.title,
-                        publication.title,
-                        release.info_hash,
-                    )
-                else:
-                    logger.warning(
-                        "Added %s for %s but no new torrent hash appeared — flagged for review.",
-                        release.title,
-                        publication.title,
-                    )
-                db.add(
-                    ReviewItem(
-                        grab_id=grab.id,
-                        file_path="",
-                        reason=(
-                            "This torrent is already present elsewhere in qBittorrent — likely "
-                            "a duplicate of a torrent already present. Find the existing file "
-                            "and resolve with its path."
-                        ),
-                        candidate_publication_id=publication.id,
-                    )
-                )
-
+            except Exception:
+                logger.exception("Failed to add torrent for %s: %s", publication.title, release.title)
+                continue
             new_grabs.append(grab)
 
         db.commit()

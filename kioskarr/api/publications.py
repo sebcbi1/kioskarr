@@ -4,9 +4,11 @@ from sqlalchemy.orm import Session
 
 from kioskarr.app_settings import get_app_settings
 from kioskarr.db import get_db
-from kioskarr.jobs.search_job import run_search_job
-from kioskarr.models import FormatPreference, Publication, PublicationType
-from kioskarr.prowlarr_client import ProwlarrClient
+from kioskarr.jobs.search_job import grab_release_candidate, run_search_job
+from kioskarr.matcher import is_already_in_flight, issue_already_owned
+from kioskarr.models import FormatPreference, GrabStatus, Publication, PublicationType
+from kioskarr.parser import parse
+from kioskarr.prowlarr_client import ProwlarrClient, Release
 from kioskarr.qbittorrent_client import QBittorrentClient
 
 router = APIRouter(prefix="/publications", tags=["publications"])
@@ -95,6 +97,92 @@ def delete_publication(publication_id: int, db: Session = Depends(get_db)) -> No
         raise HTTPException(404, "Publication not found")
     db.delete(publication)
     db.commit()
+
+
+class ManualGrabRequest(BaseModel):
+    title: str
+    guid: str
+    download_url: str
+    indexer_id: int | None = None
+    indexer_name: str | None = None
+    seeders: int | None = None
+    size: int | None = None
+    info_hash: str | None = None
+
+
+class ManualGrabOut(BaseModel):
+    id: int
+    release_title: str
+    identifier: str
+    status: GrabStatus
+    torrent_hash: str | None
+    already_owned: bool
+    already_in_flight: bool
+
+
+@router.post("/{publication_id}/grab-release", response_model=ManualGrabOut, status_code=201)
+def grab_release(
+    publication_id: int, payload: ManualGrabRequest, db: Session = Depends(get_db)
+) -> ManualGrabOut:
+    """Manually grab one specific search-preview result, bypassing every bit of
+    the automatic job's eligibility gating (confidence threshold, min_seeders,
+    cold-start baseline) — an explicit, deliberate user choice. Already-owned
+    or already-in-flight duplicates are annotated in the response but never
+    block the grab, matching Radarr/Sonarr's own manual-search behavior (e.g.
+    re-grabbing to replace a bad prior download).
+    """
+    publication = db.get(Publication, publication_id)
+    if publication is None:
+        raise HTTPException(404, "Publication not found")
+
+    parsed = parse(payload.title)
+    if parsed.identifier is None:
+        raise HTTPException(
+            400, "Couldn't determine an issue date/number from this release title — cannot grab it."
+        )
+
+    already_owned = issue_already_owned(db, publication_id, parsed.identifier)
+    already_in_flight = is_already_in_flight(db, publication_id, parsed.identifier)
+
+    app_settings = get_app_settings(db)
+    try:
+        app_settings.require_download_client()
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    qbt = QBittorrentClient(
+        app_settings.qbittorrent_url, app_settings.qbittorrent_username, app_settings.qbittorrent_password
+    )
+    qbt.login()
+    qbt.ensure_category(app_settings.qbittorrent_category)
+
+    release = Release(
+        title=payload.title,
+        guid=payload.guid,
+        download_url=payload.download_url,
+        indexer_id=payload.indexer_id,
+        indexer_name=payload.indexer_name,
+        seeders=payload.seeders,
+        size=payload.size,
+        protocol=None,
+        info_hash=payload.info_hash,
+    )
+    existing_hashes = {t["hash"] for t in qbt.list_torrents()}
+    try:
+        grab = grab_release_candidate(db, qbt, publication, release, parsed, existing_hashes, app_settings)
+    except Exception as exc:
+        raise HTTPException(502, f"Failed to add torrent: {exc}") from exc
+    db.commit()
+    db.refresh(grab)
+
+    return ManualGrabOut(
+        id=grab.id,
+        release_title=grab.release_title,
+        identifier=grab.identifier,
+        status=grab.status,
+        torrent_hash=grab.torrent_hash,
+        already_owned=already_owned,
+        already_in_flight=already_in_flight,
+    )
 
 
 @router.post("/{publication_id}/search-now")
