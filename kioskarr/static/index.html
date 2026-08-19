@@ -41,7 +41,7 @@
       </div>
     </template>
     <div class="app" x-show="!showLogin">
-    <nav class="sidebar">
+    <nav class="sidebar" :class="{ open: sidebarOpen }">
       <div class="brand">Kioskarr</div>
       <a class="nav-link" :class="{ active: route.name === 'publications' || route.name === 'publication-form' }" href="#/publications">Publications</a>
       <a class="nav-link" :class="{ active: route.name === 'review' }" href="#/review">Review Queue</a>
@@ -49,7 +49,9 @@
       <a class="nav-link" :class="{ active: route.name === 'settings' }" href="#/settings">Settings</a>
       <a class="nav-link" x-show="auth.auth_required" href="#" @click.prevent="logout()">Log out</a>
     </nav>
+    <div class="sidebar-overlay" x-show="sidebarOpen" @click="sidebarOpen = false" style="display: none;"></div>
     <main class="content">
+      <button type="button" class="hamburger-btn" @click="sidebarOpen = !sidebarOpen" aria-label="Toggle menu" x-text="sidebarOpen ? '✕' : '☰'"></button>
       <div class="toast" :class="'toast-' + toast.type" x-show="toast.message" x-transition x-text="toast.message" style="display: none;"></div>
 
       <!-- Publications list -->
@@ -62,36 +64,38 @@
           <template x-if="publications.length === 0">
             <div class="empty-state">No publications yet. Add one to start monitoring.</div>
           </template>
-          <table x-show="publications.length > 0">
-            <thead>
-              <tr>
-                <th>Title</th><th>Type</th><th>Monitored</th><th>Format</th><th>Min Seeders</th><th>Target Dir</th><th>Baseline</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <template x-for="pub in publications" :key="pub.id">
+          <div class="table-scroll" x-show="publications.length > 0">
+            <table>
+              <thead>
                 <tr>
-                  <td x-text="pub.title"></td>
-                  <td x-text="pub.type"></td>
-                  <td>
-                    <label class="toggle">
-                      <input type="checkbox" :checked="pub.monitored" @change="toggleMonitored(pub)" />
-                      <span class="toggle-slider"></span>
-                    </label>
-                  </td>
-                  <td x-text="pub.format_preference"></td>
-                  <td x-text="pub.min_seeders"></td>
-                  <td class="mono" x-text="pub.target_dir"></td>
-                  <td class="mono text-dim" x-text="pub.baseline_identifier || '—'"></td>
-                  <td class="actions">
-                    <button type="button" class="btn btn-sm" @click="searchNow(pub)">Search Now</button>
-                    <a class="btn btn-sm" :href="'#/publications/' + pub.id + '/edit'">Edit</a>
-                    <button type="button" class="btn btn-sm btn-danger" @click="deletePublication(pub)">Delete</button>
-                  </td>
+                  <th>Title</th><th>Type</th><th>Monitored</th><th>Format</th><th>Min Seeders</th><th>Target Dir</th><th>Baseline</th><th></th>
                 </tr>
-              </template>
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                <template x-for="pub in publications" :key="pub.id">
+                  <tr>
+                    <td x-text="pub.title"></td>
+                    <td x-text="pub.type"></td>
+                    <td>
+                      <label class="toggle">
+                        <input type="checkbox" :checked="pub.monitored" @change="toggleMonitored(pub)" />
+                        <span class="toggle-slider"></span>
+                      </label>
+                    </td>
+                    <td x-text="pub.format_preference"></td>
+                    <td x-text="pub.min_seeders"></td>
+                    <td class="mono" x-text="pub.target_dir"></td>
+                    <td class="mono text-dim" x-text="pub.baseline_identifier || '—'"></td>
+                    <td class="actions">
+                      <button type="button" class="btn btn-sm" @click="searchNow(pub)">Search Now</button>
+                      <a class="btn btn-sm" :href="'#/publications/' + pub.id + '/edit'">Edit</a>
+                      <button type="button" class="btn btn-sm btn-danger" @click="deletePublication(pub)">Delete</button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
         </div>
       </template>
 
@@ -283,22 +287,24 @@
           <template x-if="grabs.length === 0">
             <div class="empty-state">No grabs yet.</div>
           </template>
-          <table x-show="grabs.length > 0">
-            <thead>
-              <tr><th>Publication</th><th>Release</th><th>Identifier</th><th>Status</th><th>Indexer</th></tr>
-            </thead>
-            <tbody>
-              <template x-for="grab in grabs" :key="grab.id">
-                <tr>
-                  <td x-text="grab.publication_title"></td>
-                  <td class="mono" x-text="grab.release_title"></td>
-                  <td class="mono" x-text="grab.identifier"></td>
-                  <td><span class="badge" :class="'badge-' + grab.status" x-text="grab.status"></span></td>
-                  <td class="text-dim" x-text="grab.indexer_id || '—'"></td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
+          <div class="table-scroll" x-show="grabs.length > 0">
+            <table>
+              <thead>
+                <tr><th>Publication</th><th>Release</th><th>Identifier</th><th>Status</th><th>Indexer</th></tr>
+              </thead>
+              <tbody>
+                <template x-for="grab in grabs" :key="grab.id">
+                  <tr>
+                    <td x-text="grab.publication_title"></td>
+                    <td class="mono" x-text="grab.release_title"></td>
+                    <td class="mono" x-text="grab.identifier"></td>
+                    <td><span class="badge" :class="'badge-' + grab.status" x-text="grab.status"></span></td>
+                    <td class="text-dim" x-text="grab.indexer_id || '—'"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
         </div>
       </template>
 

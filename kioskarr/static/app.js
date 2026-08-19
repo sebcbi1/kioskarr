@@ -60,6 +60,7 @@ function app() {
     clearAdminPassword: false,
     qrCodeVisible: false,
     qrCodeSvg: "",
+    sidebarOpen: false,
 
     form: {},
     previewResults: null,
@@ -119,6 +120,7 @@ function app() {
     },
 
     onRouteEnter() {
+      this.sidebarOpen = false;
       if (this.route.name === "publications") return this.loadPublications();
       if (this.route.name === "publication-form") return this.enterPublicationForm(this.route.id);
       if (this.route.name === "review") return this.loadReviewData();

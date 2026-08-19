@@ -69,6 +69,11 @@ a:hover { color: var(--accent-hover); }
 
 .content {
   flex: 1;
+  min-width: 0; /* flex items default to min-width:auto, which stops a wide table
+                   from ever shrinking below its own content — this lets it
+                   shrink to the viewport so .table-scroll's own overflow-x
+                   actually gets a chance to kick in instead of the whole page
+                   growing wider than the screen. */
   padding: 24px 32px;
   max-width: 1200px;
 }
@@ -340,3 +345,55 @@ input:focus, select:focus, textarea:focus {
 
 .text-dim { color: var(--text-dim); }
 .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+
+.hamburger-btn {
+  display: none;
+  position: relative;
+  z-index: 1001; /* above .sidebar's 1000 — otherwise the open drawer (same
+                    top-left corner, since .content is no longer pushed over
+                    once the sidebar is taken out of flow) covers this button
+                    and there's no way to tap it again to close the drawer. */
+  font-size: 18px;
+  line-height: 1;
+  padding: 6px 10px;
+  margin-bottom: 12px;
+}
+
+/* No base display:none here — .sidebar-overlay is controlled by Alpine's
+   x-show, which can't distinguish its own hidden state from a stylesheet
+   rule that's already display:none, so it would never be able to show it.
+   Above the breakpoint it's forced off instead (below), regardless of
+   sidebarOpen — the drawer/overlay only make sense once the sidebar is an
+   off-canvas panel in the first place. */
+@media (min-width: 769px) {
+  .sidebar-overlay { display: none !important; }
+}
+
+@media (max-width: 768px) {
+  .hamburger-btn { display: inline-block; }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    z-index: 1000;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+  .sidebar.open { transform: translateX(0); }
+
+  .sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 999;
+    background: rgba(0, 0, 0, 0.6);
+  }
+
+  .content { padding: 16px; }
+
+  .page-header { flex-wrap: wrap; gap: 10px; }
+  .baseline-box { flex-wrap: wrap; }
+
+  .login-card, .modal-card { max-width: 92vw; }
+}
