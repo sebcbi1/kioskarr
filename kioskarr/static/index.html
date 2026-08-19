@@ -205,12 +205,12 @@
                         <td x-text="result.seeders ?? '—'"></td>
                         <td x-text="formatSize(result.size)"></td>
                         <td>
-                          <span class="badge" :class="result.match.meets_threshold ? 'badge-completed' : 'badge-failed'"
-                                x-text="Math.round(result.match.score) + (result.match.meets_threshold ? ' (pass)' : ' (fail)')"></span>
+                          <span class="badge" :class="result.match?.meets_threshold ? 'badge-completed' : 'badge-failed'"
+                                x-text="result.match ? (Math.round(result.match.score) + (result.match.meets_threshold ? ' (pass)' : ' (fail)')) : '—'"></span>
                         </td>
                         <td>
-                          <span class="badge badge-warn" x-show="result.match.already_owned || result.match.already_in_flight"
-                                x-text="result.match.already_owned ? 'Already owned' : 'In flight'"></span>
+                          <span class="badge badge-warn" x-show="result.match?.already_owned || result.match?.already_in_flight"
+                                x-text="result.match?.already_owned ? 'Already owned' : 'In flight'"></span>
                         </td>
                         <td>
                           <template x-if="form.id">
