@@ -166,21 +166,30 @@
                 </div>
               </template>
 
-              <div class="form-section-title">Search Preview</div>
-              <div class="preview-box">
-                <div class="preview-actions">
-                  <button type="button" class="btn btn-sm" @click="previewSearch()" :disabled="previewLoading">
-                    <span x-show="!previewLoading" x-text="previewResults === null ? 'Preview' : 'Refresh'"></span>
-                    <span x-show="previewLoading">Searching…</span>
-                  </button>
-                </div>
-                <div class="hint" x-show="previewResults === null">
-                  Searches Prowlarr with the title and aliases above, including any edits not yet saved.
-                </div>
-                <template x-if="previewResults !== null && previewResults.length === 0">
-                  <div class="empty-state">No releases found.</div>
-                </template>
-                <table x-show="previewResults && previewResults.length > 0">
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary" x-text="form.id ? 'Save' : 'Add Publication'"></button>
+                <a class="btn" href="#/publications">Cancel</a>
+              </div>
+            </form>
+          </div>
+
+          <div class="preview-panel">
+            <div class="form-section-title">Search Preview</div>
+            <div class="preview-box">
+              <div class="preview-actions">
+                <button type="button" class="btn btn-sm" @click="previewSearch()" :disabled="previewLoading">
+                  <span x-show="!previewLoading" x-text="previewResults === null ? 'Preview' : 'Refresh'"></span>
+                  <span x-show="previewLoading">Searching…</span>
+                </button>
+              </div>
+              <div class="hint" x-show="previewResults === null">
+                Searches Prowlarr with the title and aliases above, including any edits not yet saved.
+              </div>
+              <template x-if="previewResults !== null && previewResults.length === 0">
+                <div class="empty-state">No releases found.</div>
+              </template>
+              <div class="table-scroll" x-show="previewResults && previewResults.length > 0">
+                <table>
                   <thead>
                     <tr><th>Title</th><th>Indexer</th><th>Seeders</th><th>Size</th><th>Confidence</th><th></th><th></th></tr>
                   </thead>
@@ -215,12 +224,7 @@
                   </tbody>
                 </table>
               </div>
-
-              <div class="form-actions">
-                <button type="submit" class="btn btn-primary" x-text="form.id ? 'Save' : 'Add Publication'"></button>
-                <a class="btn" href="#/publications">Cancel</a>
-              </div>
-            </form>
+            </div>
           </div>
         </div>
       </template>
