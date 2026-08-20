@@ -464,7 +464,7 @@ function app() {
     async loadSettings() {
       try {
         this.settings = await apiFetch("/settings");
-        this.secrets = { prowlarr_api_key: "", qbittorrent_password: "", admin_password: "" };
+        this.secrets = { prowlarr_api_key: "", qbittorrent_password: "", admin_password: "", ntfy_token: "" };
         this.clearAdminPassword = false;
       } catch (e) {
         this.showToast(`Failed to load settings: ${e.message}`, "error");
@@ -488,9 +488,13 @@ function app() {
         default_min_seeders: Number(this.settings.default_min_seeders),
         match_confidence_threshold: Number(this.settings.match_confidence_threshold),
         admin_username: this.settings.admin_username,
+        ntfy_enabled: this.settings.ntfy_enabled,
+        ntfy_url: this.settings.ntfy_url,
+        ntfy_topic: this.settings.ntfy_topic,
       };
       if (this.secrets.prowlarr_api_key) payload.prowlarr_api_key = this.secrets.prowlarr_api_key;
       if (this.secrets.qbittorrent_password) payload.qbittorrent_password = this.secrets.qbittorrent_password;
+      if (this.secrets.ntfy_token) payload.ntfy_token = this.secrets.ntfy_token;
       if (this.clearAdminPassword) {
         payload.admin_password = "";
       } else if (this.secrets.admin_password) {
@@ -499,12 +503,21 @@ function app() {
 
       try {
         this.settings = await apiFetch("/settings", { method: "PATCH", body: JSON.stringify(payload) });
-        this.secrets = { prowlarr_api_key: "", qbittorrent_password: "", admin_password: "" };
+        this.secrets = { prowlarr_api_key: "", qbittorrent_password: "", admin_password: "", ntfy_token: "" };
         this.clearAdminPassword = false;
         this.showToast("Settings saved", "success");
         await this.checkAuthStatus();
       } catch (e) {
         this.showToast(`Save failed: ${e.message}`, "error");
+      }
+    },
+
+    async sendTestNotification() {
+      try {
+        await apiFetch("/settings/notifications/test", { method: "POST" });
+        this.showToast("Test notification sent", "success");
+      } catch (e) {
+        this.showToast(`Test notification failed: ${e.message}`, "error");
       }
     },
 

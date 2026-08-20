@@ -1,6 +1,6 @@
 import secrets
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -8,6 +8,7 @@ from kioskarr.app_settings import get_app_settings
 from kioskarr.auth import hash_password
 from kioskarr.db import get_db
 from kioskarr.models import AppSettings
+from kioskarr.notifications import send_notification
 from kioskarr.scheduler import reschedule
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -29,6 +30,10 @@ class AppSettingsOut(BaseModel):
     admin_username: str
     admin_password_set: bool
     opds_token: str
+    ntfy_enabled: bool
+    ntfy_url: str
+    ntfy_topic: str
+    ntfy_token_set: bool
 
 
 class AppSettingsUpdate(BaseModel):
@@ -47,6 +52,10 @@ class AppSettingsUpdate(BaseModel):
     admin_username: str | None = None
     admin_password: str | None = None
     regenerate_opds_token: bool | None = None
+    ntfy_enabled: bool | None = None
+    ntfy_url: str | None = None
+    ntfy_topic: str | None = None
+    ntfy_token: str | None = None
 
 
 def _to_out(app_settings: AppSettings) -> AppSettingsOut:
@@ -66,6 +75,10 @@ def _to_out(app_settings: AppSettings) -> AppSettingsOut:
         admin_username=app_settings.admin_username,
         admin_password_set=bool(app_settings.admin_password_hash),
         opds_token=app_settings.opds_token,
+        ntfy_enabled=app_settings.ntfy_enabled,
+        ntfy_url=app_settings.ntfy_url,
+        ntfy_topic=app_settings.ntfy_topic,
+        ntfy_token_set=bool(app_settings.ntfy_token),
     )
 
 
@@ -102,3 +115,15 @@ def update_settings(payload: AppSettingsUpdate, db: Session = Depends(get_db)) -
         reschedule(app_settings)
 
     return _to_out(app_settings)
+
+
+@router.post("/notifications/test")
+def test_notification(db: Session = Depends(get_db)) -> dict:
+    app_settings = get_app_settings(db)
+    if not app_settings.ntfy_configured:
+        raise HTTPException(400, "Enable notifications and set a topic first.")
+    try:
+        send_notification(app_settings, "Kioskarr", "Test notification — ntfy is configured correctly.")
+    except Exception as exc:
+        raise HTTPException(502, f"ntfy request failed: {exc}") from exc
+    return {"sent": True}

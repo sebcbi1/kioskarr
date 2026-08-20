@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from kioskarr.app_settings import get_app_settings
 from kioskarr.matcher import DEFAULT_MATCH_CONFIDENCE_THRESHOLD, is_confident_match
 from kioskarr.models import AppSettings, Grab, GrabStatus, Issue, Publication, ReviewItem
+from kioskarr.notifications import notify_issue_available
 from kioskarr.parser import FORMAT_EXTENSIONS, parse
 from kioskarr.qbittorrent_client import QBittorrentClient
 
@@ -163,6 +164,7 @@ def import_issue(
     grab.status = GrabStatus.imported
     db.commit()
     db.refresh(issue)
+    notify_issue_available(get_app_settings(db), issue, publication)
     return issue
 
 

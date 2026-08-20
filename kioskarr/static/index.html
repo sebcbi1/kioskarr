@@ -387,6 +387,22 @@
                 <label for="clear-admin-password">Remove password (disable login again)</label>
               </div>
 
+              <div class="form-section-title">Notifications (ntfy)</div>
+              <div class="checkbox-field field">
+                <input type="checkbox" id="ntfy-enabled" x-model="settings.ntfy_enabled" />
+                <label for="ntfy-enabled">Send a push notification when an issue becomes available</label>
+              </div>
+              <div class="field"><label>Server URL</label><input type="url" x-model="settings.ntfy_url" /></div>
+              <div class="field"><label>Topic</label><input type="text" x-model="settings.ntfy_topic" /></div>
+              <div class="field">
+                <label>Access token (optional)</label>
+                <input type="password" x-model="secrets.ntfy_token" :placeholder="settings.ntfy_token_set ? 'Currently set — leave blank to keep' : 'Not set'" />
+                <span class="hint">Only needed for a protected topic or a self-hosted ntfy instance with auth enabled.</span>
+              </div>
+              <div class="field">
+                <button type="button" class="btn btn-sm" @click="sendTestNotification()">Send test notification</button>
+              </div>
+
               <div class="form-section-title">OPDS (external readers)</div>
               <div class="field">
                 <label>Token-based OPDS URL</label>

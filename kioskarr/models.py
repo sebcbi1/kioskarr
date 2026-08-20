@@ -151,6 +151,19 @@ class AppSettings(Base):
     # user has to copy it into the reader app's URL.
     opds_token: Mapped[str] = mapped_column(String, default="")
 
+    # Push notifications (ntfy.sh or self-hosted) sent when an issue becomes
+    # available in the library. ntfy_token is optional Bearer auth for a
+    # protected topic / self-hosted instance — write-only like the other
+    # secrets above.
+    ntfy_enabled: Mapped[bool] = mapped_column(default=False)
+    ntfy_url: Mapped[str] = mapped_column(String, default="https://ntfy.sh")
+    ntfy_topic: Mapped[str] = mapped_column(String, default="")
+    ntfy_token: Mapped[str] = mapped_column(String, default="")
+
+    @property
+    def ntfy_configured(self) -> bool:
+        return self.ntfy_enabled and bool(self.ntfy_topic)
+
     def require_prowlarr(self) -> None:
         if not self.prowlarr_api_key:
             raise RuntimeError("Prowlarr API key is not set — cannot search indexers.")
