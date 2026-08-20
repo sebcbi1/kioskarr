@@ -72,6 +72,22 @@ _DATE_PATTERNS = [
         ),
         lambda m: (int(m["year"]), _month_num(m["month"]), int(m["day"])),
     ),
+    # two consecutive month names + year, e.g. "Septembre Octobre 2026" — a
+    # bi-monthly (or any other multi-month-name) issue naming convention where the
+    # release spans two months. Consuming the *whole* span in the match (not just
+    # the trailing month name) is what matters: whatever falls outside the match
+    # becomes part of title_guess, and a leftover month name there is exactly what
+    # was silently dragging the fuzzy title score down/around the threshold. The
+    # trailing month becomes the identifier's month — the same choice the parser
+    # already made by accident before this pattern existed, so already-owned
+    # Issue rows imported under the old behavior keep matching.
+    (
+        re.compile(
+            rf"\b(?:{_MONTH_ALTERNATION})\.?\s+(?P<month>{_MONTH_ALTERNATION})\.?\s+(?P<year>(?:19|20)\d{{2}})\b",
+            re.IGNORECASE,
+        ),
+        lambda m: (int(m["year"]), _month_num(m["month"]), None),
+    ),
     # month name + year, no day, e.g. "August 2026"
     (
         re.compile(rf"\b(?P<month>{_MONTH_ALTERNATION})\.?\s+(?P<year>(?:19|20)\d{{2}})\b", re.IGNORECASE),

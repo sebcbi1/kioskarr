@@ -29,6 +29,12 @@ DATE_AND_ISSUE_CASES = [
     # the same batch parsed with day granularity ("2026-04-02", etc); "1er" alone
     # was falling back to month-only ("2026-04"), inconsistent with its siblings.
     ("Ouest.France.Du.1er.Avril.2026.FR.[PDF]-G11", "2026-04-01", "date", "ouest france"),
+    # Bi-monthly issue naming: two consecutive month names before the year. The
+    # date pattern used to only grab the trailing month ("Octobre 2026"), leaving
+    # the leading month name ("Septembre") stuck in title_guess and dragging the
+    # fuzzy title score down against a clean "Marmiton" publication title.
+    ("Marmiton.N.91.Septembre.Octobre.2026.FR.[PDF]-NoTag", "2026-10", "date", "marmiton"),
+    ("Marmiton.N.89.Mai.Juin.2026.FR.[PDF]-G11", "2026-06", "date", "marmiton"),
 ]
 
 
@@ -94,6 +100,17 @@ def test_title_guess_strips_issue_marker_when_date_also_present():
     assert result.identifier == "2026-06-23"
     assert "25342" not in result.title_guess
     assert result.title_guess.lower() == "le monde du"
+
+
+def test_title_guess_has_no_leftover_month_name_for_bimonthly_titles():
+    # Real bug: only the trailing month of a two-month-name span ("Septembre
+    # Octobre") got consumed by the date match, leaving the leading month stuck
+    # in title_guess ("Marmiton Septembre") and poisoning the fuzzy title score.
+    result = parse("Marmiton.N.91.Septembre.Octobre.2026.FR.[PDF]-NoTag")
+    assert result.title_guess.lower() == "marmiton"
+
+    result = parse("Marmiton.N.89.Mai.Juin.2026.FR.[PDF]-G11")
+    assert result.title_guess.lower() == "marmiton"
 
 
 def test_identifier_sort_key_orders_dates_correctly():

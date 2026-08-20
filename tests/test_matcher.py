@@ -51,6 +51,18 @@ def test_confidently_matches_real_daily_but_rejects_differently_branded_siblings
         assert not is_confident_match(parse(sibling_title), "Le Monde", [])
 
 
+def test_confidently_matches_bimonthly_issue_naming():
+    # Real bug: a two-month-name release ("Septembre Octobre") left a leftover
+    # month name in title_guess after the date match, dragging the score below
+    # the default threshold even though this is unambiguously a Marmiton issue.
+    for title in [
+        "Marmiton.N.91.Septembre.Octobre.2026.FR.[PDF]-NoTag",
+        "Marmiton.N.89.Mai.Juin.2026.FR.[PDF]-G11",
+        "Marmiton.N.87.Janvier.Fevrier.2026.FR.[PDF]-G11",
+    ]:
+        assert is_confident_match(parse(title), "Marmiton", [])
+
+
 def test_alias_with_punctuation_scores_the_same_as_its_normalized_form():
     # Real bug: title_match_score normalized the parsed release side but not
     # the publication title/alias side, so "Ouest-France" (the real official
