@@ -251,6 +251,29 @@ def test_known_duplicate_via_info_hash_flagged_without_calling_add_torrent(db_se
     assert qbt.added == []  # never even attempted — already known to be a duplicate
 
 
+def test_unconfirmed_info_hash_does_not_produce_a_phantom_downloading_grab(db_session):
+    # Real bug, confirmed live: release.info_hash is just Prowlarr's own
+    # precomputed hash of the *expected* content — not proof qBittorrent
+    # actually added it. If add_torrent's own poll never sees a new hash
+    # appear (simulate_duplicate=True — qBittorrent's list never changes),
+    # the grab must NOT be recorded as "downloading" just because Prowlarr
+    # happened to supply an info_hash; that hash was never confirmed to
+    # exist in qBittorrent at all.
+    pub = _publication(db_session)
+    release = _release(
+        "Ouest.France.Du.22.Juin.2026.FR.[PDF]-G11", "guid-22", info_hash="unconfirmed-hash"
+    )
+    prowlarr = FakeProwlarr([release])
+    qbt = FakeQbt(simulate_duplicate=True)  # add_torrent "succeeds" but no new hash ever appears
+
+    grabs = run_search_job(db_session, prowlarr, qbt, publications=[pub])
+
+    assert len(grabs) == 1
+    assert grabs[0].status == GrabStatus.needs_review
+    assert grabs[0].torrent_hash is None
+    assert qbt.added == [(release.download_url, "kioskarr")]  # add_torrent WAS attempted this time
+
+
 def test_restricts_download_when_torrent_bundles_an_extra_file(db_session):
     # Real release shape confirmed live: a torrent can bundle more than the
     # one file we want (a supplement, or in the extreme case a "national

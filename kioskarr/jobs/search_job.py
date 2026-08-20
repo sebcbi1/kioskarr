@@ -171,10 +171,14 @@ def grab_release_candidate(
         torrent_hash = None
     else:
         returned_hash = qbt.add_torrent(release.download_url, category=app_settings.qbittorrent_category)
-        # Prefer Prowlarr's own infoHash — known immediately, no polling
-        # needed. Falls back to add_torrent's polling-based detection for
-        # indexers that don't populate infoHash.
-        torrent_hash = release.info_hash or returned_hash
+        # Only trust a hash add_torrent itself confirmed by observing it appear
+        # in qBittorrent's own torrent list — release.info_hash is just Prowlarr's
+        # precomputed hash of the *expected* content, not proof qBittorrent
+        # actually has it. Trusting it unconditionally here previously produced
+        # "downloading" Grabs for torrents that were never actually added (e.g.
+        # a magnet/.torrent link qBittorrent couldn't fetch) — silently wrong,
+        # confirmed live.
+        torrent_hash = returned_hash
         if torrent_hash:
             existing_hashes.add(torrent_hash)
 
