@@ -40,6 +40,27 @@
         </div>
       </div>
     </template>
+    <template x-if="statusEditGrab">
+      <div class="modal-overlay" @click.self="statusEditGrab = null">
+        <div class="modal-card">
+          <div class="page-header"><h1>Change Status</h1></div>
+          <div class="field">
+            <label>Status</label>
+            <select x-model="statusEditValue">
+              <option value="downloading">downloading</option>
+              <option value="completed">completed</option>
+              <option value="imported">imported</option>
+              <option value="needs_review">needs_review</option>
+              <option value="failed">failed</option>
+            </select>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-primary" @click="saveGrabStatus()">Save</button>
+            <button type="button" class="btn" @click="statusEditGrab = null">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </template>
     <div class="app" x-show="!showLogin">
     <nav class="sidebar" :class="{ open: sidebarOpen }">
       <div class="brand">Kioskarr</div>
@@ -292,7 +313,7 @@
           <div class="table-scroll" x-show="grabs.length > 0">
             <table>
               <thead>
-                <tr><th>Publication</th><th>Release</th><th>Identifier</th><th>Status</th><th>Indexer</th></tr>
+                <tr><th>Publication</th><th>Release</th><th>Identifier</th><th>Status</th><th>Indexer</th><th></th></tr>
               </thead>
               <tbody>
                 <template x-for="grab in grabs" :key="grab.id">
@@ -302,6 +323,10 @@
                     <td class="mono" x-text="grab.identifier"></td>
                     <td><span class="badge" :class="'badge-' + grab.status" x-text="grab.status"></span></td>
                     <td class="text-dim" x-text="grab.indexer_id || '—'"></td>
+                    <td class="actions">
+                      <button type="button" class="btn btn-sm" @click="openStatusEdit(grab)">Status</button>
+                      <button type="button" class="btn btn-sm" @click="regrabGrab(grab)">Regrab</button>
+                    </td>
                   </tr>
                 </template>
               </tbody>

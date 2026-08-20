@@ -61,6 +61,8 @@ function app() {
     qrCodeVisible: false,
     qrCodeSvg: "",
     sidebarOpen: false,
+    statusEditGrab: null,
+    statusEditValue: "",
 
     form: {},
     previewResults: null,
@@ -394,6 +396,37 @@ function app() {
         this.grabs = await apiFetch(`/grabs${query}`);
       } catch (e) {
         this.showToast(`Failed to load grabs: ${e.message}`, "error");
+      }
+    },
+
+    openStatusEdit(grab) {
+      this.statusEditGrab = grab;
+      this.statusEditValue = grab.status;
+    },
+
+    async saveGrabStatus() {
+      try {
+        const updated = await apiFetch(`/grabs/${this.statusEditGrab.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: this.statusEditValue }),
+        });
+        this.statusEditGrab.status = updated.status;
+        this.statusEditGrab = null;
+        this.showToast("Status updated", "success");
+      } catch (e) {
+        this.showToast(`Update failed: ${e.message}`, "error");
+      }
+    },
+
+    async regrabGrab(grab) {
+      if (!confirm(`Regrab "${grab.release_title}"? This marks the current grab failed and searches again now.`)) return;
+      try {
+        await apiFetch(`/grabs/${grab.id}`, { method: "PATCH", body: JSON.stringify({ status: "failed" }) });
+        const result = await apiFetch(`/publications/${grab.publication_id}/search-now`, { method: "POST" });
+        this.showToast(`Regrabbed: ${result.grabbed} release(s) found`, "success");
+        await this.loadGrabs();
+      } catch (e) {
+        this.showToast(`Regrab failed: ${e.message}`, "error");
       }
     },
 
