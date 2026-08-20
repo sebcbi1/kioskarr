@@ -75,15 +75,17 @@ _DATE_PATTERNS = [
     # two consecutive month names + year, e.g. "Septembre Octobre 2026" — a
     # bi-monthly (or any other multi-month-name) issue naming convention where the
     # release spans two months. Consuming the *whole* span in the match (not just
-    # the trailing month name) is what matters: whatever falls outside the match
-    # becomes part of title_guess, and a leftover month name there is exactly what
-    # was silently dragging the fuzzy title score down/around the threshold. The
-    # trailing month becomes the identifier's month — the same choice the parser
-    # already made by accident before this pattern existed, so already-owned
-    # Issue rows imported under the old behavior keep matching.
+    # one month name) is what matters: whatever falls outside the match becomes
+    # part of title_guess, and a leftover month name there is exactly what was
+    # silently dragging the fuzzy title score down/around the threshold. The
+    # leading month becomes the identifier's month (the period's start), which
+    # sorts lower than the old accidental trailing-month behavior for the same
+    # release — harmless, since a publication's baseline_identifier is always
+    # derived from an issue's *trailing* month and therefore still sorts above
+    # this issue's leading-month identifier, so it isn't re-grabbed.
     (
         re.compile(
-            rf"\b(?:{_MONTH_ALTERNATION})\.?\s+(?P<month>{_MONTH_ALTERNATION})\.?\s+(?P<year>(?:19|20)\d{{2}})\b",
+            rf"\b(?P<month>{_MONTH_ALTERNATION})\.?\s+(?:{_MONTH_ALTERNATION})\.?\s+(?P<year>(?:19|20)\d{{2}})\b",
             re.IGNORECASE,
         ),
         lambda m: (int(m["year"]), _month_num(m["month"]), None),

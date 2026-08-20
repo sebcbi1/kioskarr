@@ -32,9 +32,10 @@ DATE_AND_ISSUE_CASES = [
     # Bi-monthly issue naming: two consecutive month names before the year. The
     # date pattern used to only grab the trailing month ("Octobre 2026"), leaving
     # the leading month name ("Septembre") stuck in title_guess and dragging the
-    # fuzzy title score down against a clean "Marmiton" publication title.
-    ("Marmiton.N.91.Septembre.Octobre.2026.FR.[PDF]-NoTag", "2026-10", "date", "marmiton"),
-    ("Marmiton.N.89.Mai.Juin.2026.FR.[PDF]-G11", "2026-06", "date", "marmiton"),
+    # fuzzy title score down against a clean "Marmiton" publication title. The
+    # identifier uses the leading (period-start) month.
+    ("Marmiton.N.91.Septembre.Octobre.2026.FR.[PDF]-NoTag", "2026-09", "date", "marmiton"),
+    ("Marmiton.N.89.Mai.Juin.2026.FR.[PDF]-G11", "2026-05", "date", "marmiton"),
 ]
 
 
