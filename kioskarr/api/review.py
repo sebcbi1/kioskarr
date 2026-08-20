@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from kioskarr.db import get_db
 from kioskarr.jobs.import_job import import_issue
-from kioskarr.models import Publication, ReviewItem
+from kioskarr.models import GrabStatus, Publication, ReviewItem
 
 router = APIRouter(prefix="/review", tags=["review"])
 
@@ -71,6 +71,23 @@ def resolve_review_item(
             "this process/container, not necessarily what qBittorrent's own UI shows — e.g. "
             "/downloads/... here if that's how it's mounted, not the host's own /mnt/... path.",
         ) from exc
+    item.resolved = True
+    db.commit()
+    db.refresh(item)
+    return _to_out(item)
+
+
+@router.post("/{review_item_id}/discard", response_model=ReviewItemOut)
+def discard_review_item(review_item_id: int, db: Session = Depends(get_db)) -> ReviewItemOut:
+    """Give up on this grab without importing anything — database-only, no
+    qBittorrent interaction. `failed` isn't in matcher.is_already_in_flight's
+    status filter, so a future search cycle is still free to re-grab the same
+    identifier later if it reappears; this only clears it from the queue.
+    """
+    item = db.get(ReviewItem, review_item_id)
+    if item is None:
+        raise HTTPException(404, "Review item not found")
+    item.grab.status = GrabStatus.failed
     item.resolved = True
     db.commit()
     db.refresh(item)

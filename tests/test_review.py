@@ -114,3 +114,30 @@ def test_resolve_unknown_publication_404s(client, tmp_path):
     )
 
     assert response.status_code == 404
+
+
+def test_discard_marks_grab_failed_and_resolves_item(client, tmp_path):
+    from kioskarr.db import SessionLocal
+    from kioskarr.models import Grab, GrabStatus
+
+    _, grab_id = _make_publication_and_grab(tmp_path / "library")
+    review_id = _make_review_item(grab_id, tmp_path / "whatever.pdf")
+
+    response = client.post(f"/review/{review_id}/discard")
+
+    assert response.status_code == 200
+    assert response.json()["resolved"] is True
+
+    db = SessionLocal()
+    try:
+        grab = db.get(Grab, grab_id)
+        assert grab.status == GrabStatus.failed
+    finally:
+        db.close()
+
+    assert client.get("/review").json() == []
+
+
+def test_discard_unknown_review_item_404s(client):
+    response = client.post("/review/999999/discard")
+    assert response.status_code == 404

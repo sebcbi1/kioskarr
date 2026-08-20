@@ -244,6 +244,24 @@ function app() {
       }
     },
 
+    async setBaseline() {
+      const value = (this.form.baseline_identifier || "").trim();
+      if (!value) {
+        this.showToast("Enter a baseline value first", "error");
+        return;
+      }
+      try {
+        const updated = await apiFetch(`/publications/${this.form.id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ baseline_identifier: value }),
+        });
+        this.form.baseline_identifier = updated.baseline_identifier;
+        this.showToast("Baseline set", "success");
+      } catch (e) {
+        this.showToast(`Set failed: ${e.message}`, "error");
+      }
+    },
+
     async resetBaseline() {
       if (!confirm("Reset the cold-start baseline? The next search will re-evaluate from scratch.")) return;
       try {
@@ -355,6 +373,17 @@ function app() {
         this.showToast("Review item resolved", "success");
       } catch (e) {
         this.showToast(`Resolve failed: ${e.message}`, "error");
+      }
+    },
+
+    async discardReviewItem(item) {
+      if (!confirm("Discard this grab? It won't be imported — a future search may re-grab it if it reappears.")) return;
+      try {
+        await apiFetch(`/review/${item.id}/discard`, { method: "POST" });
+        this.reviewItems = this.reviewItems.filter((i) => i.id !== item.id);
+        this.showToast("Grab discarded", "success");
+      } catch (e) {
+        this.showToast(`Discard failed: ${e.message}`, "error");
       }
     },
 

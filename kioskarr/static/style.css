@@ -324,6 +324,7 @@ input:focus, select:focus, textarea:focus {
   font-size: 13px;
   color: var(--text-dim);
 }
+.baseline-box input { flex: 1; }
 
 .preview-panel {
   background: var(--panel);

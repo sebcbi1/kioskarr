@@ -164,7 +164,8 @@
                 <div>
                   <div class="form-section-title">Cold-start floor</div>
                   <div class="baseline-box">
-                    <span>Baseline: <span class="mono" x-text="form.baseline_identifier || 'not yet initialized'"></span></span>
+                    <input type="text" x-model="form.baseline_identifier" placeholder="e.g. 2026-06-22 or issue-42" class="mono" />
+                    <button type="button" class="btn btn-sm" @click="setBaseline()">Set</button>
                     <button type="button" class="btn btn-sm" x-show="form.baseline_identifier" @click="resetBaseline()">Reset</button>
                   </div>
                 </div>
@@ -264,6 +265,7 @@
                   <input type="text" x-model="item._filePath" placeholder="optional — leave blank to use recorded path" />
                 </div>
                 <button type="submit" class="btn btn-primary btn-sm">Resolve</button>
+                <button type="button" class="btn btn-sm btn-danger" @click="discardReviewItem(item)">Discard</button>
               </form>
             </div>
           </template>
