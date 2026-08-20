@@ -1,4 +1,5 @@
 import secrets
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -30,6 +31,8 @@ class AppSettingsOut(BaseModel):
     admin_username: str
     admin_password_set: bool
     opds_token: str
+    opds_sort_column: str
+    opds_sort_direction: str
     ntfy_enabled: bool
     ntfy_url: str
     ntfy_topic: str
@@ -52,6 +55,8 @@ class AppSettingsUpdate(BaseModel):
     admin_username: str | None = None
     admin_password: str | None = None
     regenerate_opds_token: bool | None = None
+    opds_sort_column: Literal["imported_at", "identifier"] | None = None
+    opds_sort_direction: Literal["asc", "desc"] | None = None
     ntfy_enabled: bool | None = None
     ntfy_url: str | None = None
     ntfy_topic: str | None = None
@@ -75,6 +80,8 @@ def _to_out(app_settings: AppSettings) -> AppSettingsOut:
         admin_username=app_settings.admin_username,
         admin_password_set=bool(app_settings.admin_password_hash),
         opds_token=app_settings.opds_token,
+        opds_sort_column=app_settings.opds_sort_column,
+        opds_sort_direction=app_settings.opds_sort_direction,
         ntfy_enabled=app_settings.ntfy_enabled,
         ntfy_url=app_settings.ntfy_url,
         ntfy_topic=app_settings.ntfy_topic,

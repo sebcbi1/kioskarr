@@ -488,6 +488,8 @@ function app() {
         default_min_seeders: Number(this.settings.default_min_seeders),
         match_confidence_threshold: Number(this.settings.match_confidence_threshold),
         admin_username: this.settings.admin_username,
+        opds_sort_column: this.settings.opds_sort_column,
+        opds_sort_direction: this.settings.opds_sort_direction,
         ntfy_enabled: this.settings.ntfy_enabled,
         ntfy_url: this.settings.ntfy_url,
         ntfy_topic: this.settings.ntfy_topic,

@@ -24,7 +24,10 @@ def client():
 
     db = SessionLocal()
     try:
-        get_app_settings(db).admin_password_hash = ""
+        app_settings = get_app_settings(db)
+        app_settings.admin_password_hash = ""
+        app_settings.opds_sort_column = "imported_at"
+        app_settings.opds_sort_direction = "desc"
         db.query(ReviewItem).delete()
         db.query(Issue).delete()
         db.query(Grab).delete()
@@ -189,6 +192,103 @@ def test_publication_feed_unknown_mime_falls_back_to_octet_stream(client, tmp_pa
     feed = ET.fromstring(response.content)
     link = feed.find(f"{ATOM}entry").find(f"{ATOM}link")
     assert link.get("type") == "application/octet-stream"
+
+
+def test_publication_feed_sorts_by_imported_at_desc_by_default(client, tmp_path):
+    from datetime import datetime, timezone
+
+    pub = _make_publication()
+    older = tmp_path / "older.pdf"
+    older.write_bytes(b"older")
+    newer = tmp_path / "newer.pdf"
+    newer.write_bytes(b"newer")
+    older_id = _make_issue(pub, "2026-08-01", older, imported_at=datetime(2026, 8, 1, tzinfo=timezone.utc))
+    newer_id = _make_issue(pub, "2026-08-13", newer, imported_at=datetime(2026, 8, 13, tzinfo=timezone.utc))
+
+    response = client.get(f"/opds/publications/{pub}")
+
+    ids = [
+        entry.find(f"{ATOM}id").text.rsplit(":", 1)[1]
+        for entry in ET.fromstring(response.content).findall(f"{ATOM}entry")
+    ]
+    assert ids == [str(newer_id), str(older_id)]
+
+
+def test_publication_feed_sort_direction_asc_reverses_order(client, tmp_path):
+    from datetime import datetime, timezone
+
+    pub = _make_publication()
+    older = tmp_path / "older.pdf"
+    older.write_bytes(b"older")
+    newer = tmp_path / "newer.pdf"
+    newer.write_bytes(b"newer")
+    older_id = _make_issue(pub, "2026-08-01", older, imported_at=datetime(2026, 8, 1, tzinfo=timezone.utc))
+    newer_id = _make_issue(pub, "2026-08-13", newer, imported_at=datetime(2026, 8, 13, tzinfo=timezone.utc))
+    client.patch("/settings", json={"opds_sort_direction": "asc"})
+
+    response = client.get(f"/opds/publications/{pub}")
+
+    ids = [
+        entry.find(f"{ATOM}id").text.rsplit(":", 1)[1]
+        for entry in ET.fromstring(response.content).findall(f"{ATOM}entry")
+    ]
+    assert ids == [str(older_id), str(newer_id)]
+
+
+def test_publication_feed_sorts_by_identifier_handles_double_digit_issue_numbers(client, tmp_path):
+    # "issue-10" < "issue-9" lexicographically — a naive string/column sort would
+    # get this backwards. identifier_sort_key exists precisely to avoid that.
+    pub = _make_publication()
+    issue_9_path = tmp_path / "issue9.pdf"
+    issue_9_path.write_bytes(b"nine")
+    issue_10_path = tmp_path / "issue10.pdf"
+    issue_10_path.write_bytes(b"ten")
+    issue_9_id = _make_issue(pub, "issue-9", issue_9_path)
+    issue_10_id = _make_issue(pub, "issue-10", issue_10_path)
+    client.patch("/settings", json={"opds_sort_column": "identifier", "opds_sort_direction": "asc"})
+
+    response = client.get(f"/opds/publications/{pub}")
+
+    ids = [
+        entry.find(f"{ATOM}id").text.rsplit(":", 1)[1]
+        for entry in ET.fromstring(response.content).findall(f"{ATOM}entry")
+    ]
+    assert ids == [str(issue_9_id), str(issue_10_id)]
+
+
+def test_root_feed_cover_respects_sort_setting(client, tmp_path):
+    pub = _make_publication()
+    file_path = tmp_path / "issue.pdf"
+    file_path.write_bytes(b"content")
+    file_path2 = tmp_path / "issue2.pdf"
+    file_path2.write_bytes(b"content2")
+    issue_9_id = _make_issue(pub, "issue-9", file_path)
+    issue_10_id = _make_issue(pub, "issue-10", file_path2)
+    client.patch("/settings", json={"opds_sort_column": "identifier", "opds_sort_direction": "asc"})
+
+    response = client.get("/opds")
+
+    entry = ET.fromstring(response.content).find(f"{ATOM}entry")
+    link = entry.find(f"{ATOM}link[@rel='http://opds-spec.org/image']")
+    # asc + identifier => issue-9 sorts first, so it's the one picked as "the" cover
+    assert link.get("href") == f"/opds/issues/{issue_9_id}/cover"
+    assert issue_9_id != issue_10_id
+
+
+def test_settings_rejects_invalid_opds_sort_column(client):
+    response = client.patch("/settings", json={"opds_sort_column": "bogus"})
+    assert response.status_code == 422
+
+
+def test_settings_rejects_invalid_opds_sort_direction(client):
+    response = client.patch("/settings", json={"opds_sort_direction": "bogus"})
+    assert response.status_code == 422
+
+
+def test_settings_exposes_default_opds_sort_settings(client):
+    body = client.get("/settings").json()
+    assert body["opds_sort_column"] == "imported_at"
+    assert body["opds_sort_direction"] == "desc"
 
 
 def test_publication_feed_404_for_unknown_publication(client):

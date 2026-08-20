@@ -151,6 +151,14 @@ class AppSettings(Base):
     # user has to copy it into the reader app's URL.
     opds_token: Mapped[str] = mapped_column(String, default="")
 
+    # How issues are ordered within an OPDS acquisition feed (and which issue is
+    # picked as a publication's cover in the root feed). "identifier" uses the
+    # issue's own date/number rather than when it was imported — see
+    # kioskarr.parser.identifier_sort_key for why a raw string/column sort isn't
+    # enough for issue-number identifiers.
+    opds_sort_column: Mapped[str] = mapped_column(String, default="imported_at")  # "imported_at" | "identifier"
+    opds_sort_direction: Mapped[str] = mapped_column(String, default="desc")  # "asc" | "desc"
+
     # Push notifications (ntfy.sh or self-hosted) sent when an issue becomes
     # available in the library. ntfy_token is optional Bearer auth for a
     # protected topic / self-hosted instance — write-only like the other

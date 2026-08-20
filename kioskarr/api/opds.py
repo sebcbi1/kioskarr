@@ -30,7 +30,8 @@ from sqlalchemy.orm import Session
 from kioskarr.app_settings import get_app_settings
 from kioskarr.covers import get_or_generate_cover
 from kioskarr.db import get_db
-from kioskarr.models import Issue, Publication
+from kioskarr.models import AppSettings, Issue, Publication
+from kioskarr.parser import identifier_sort_key
 
 router = APIRouter(prefix="/opds", tags=["opds"])
 token_router = APIRouter(prefix="/opds/token/{token}", tags=["opds"])
@@ -107,7 +108,17 @@ def _require_valid_token(token: str, db: Session) -> None:
         raise HTTPException(404, "Not found")
 
 
+def _sort_issues(issues: list[Issue], app_settings: AppSettings) -> list[Issue]:
+    reverse = app_settings.opds_sort_direction == "desc"
+    if app_settings.opds_sort_column == "identifier":
+        # Not a raw string sort — "issue-10" < "issue-9" lexicographically, so this
+        # needs the same comparable key used elsewhere to detect newer issues.
+        return sorted(issues, key=lambda issue: identifier_sort_key(issue.identifier), reverse=reverse)
+    return sorted(issues, key=lambda issue: issue.imported_at, reverse=reverse)
+
+
 def _build_root_feed(db: Session, base: str) -> Response:
+    app_settings = get_app_settings(db)
     feed = _feed_root("urn:kioskarr:root", "Kioskarr", self_href=base, self_type=NAV_TYPE, root_href=base)
     publications = db.query(Publication).order_by(Publication.title).all()
     for pub in publications:
@@ -118,15 +129,12 @@ def _build_root_feed(db: Session, base: str) -> Response:
         ET.SubElement(
             entry, _tag("link"), rel="subsection", href=f"{base}/publications/{pub.id}", type=ACQ_TYPE
         )
-        # A publication has no file of its own to extract a cover from — borrow its
-        # latest issue's, same one this publication's own feed would show first.
-        latest_issue = (
-            db.query(Issue)
-            .filter(Issue.publication_id == pub.id)
-            .order_by(Issue.imported_at.desc())
-            .first()
-        )
-        cover_href = f"{base}/issues/{latest_issue.id}/cover" if latest_issue else PLACEHOLDER_COVER_PATH
+        # A publication has no file of its own to extract a cover from — borrow
+        # whichever issue this publication's own feed would show first, so the two
+        # stay consistent with each other under any sort setting.
+        pub_issues = db.query(Issue).filter(Issue.publication_id == pub.id).all()
+        sorted_issues = _sort_issues(pub_issues, app_settings)
+        cover_href = f"{base}/issues/{sorted_issues[0].id}/cover" if sorted_issues else PLACEHOLDER_COVER_PATH
         _add_cover_links(entry, cover_href)
     return Response(content=_serialize(feed), media_type=NAV_TYPE)
 
@@ -136,6 +144,7 @@ def _build_publication_feed(db: Session, base: str, publication_id: int) -> Resp
     if publication is None:
         raise HTTPException(404, "Publication not found")
 
+    app_settings = get_app_settings(db)
     feed = _feed_root(
         f"urn:kioskarr:publication:{publication.id}",
         publication.title,
@@ -143,12 +152,8 @@ def _build_publication_feed(db: Session, base: str, publication_id: int) -> Resp
         self_type=ACQ_TYPE,
         root_href=base,
     )
-    issues = (
-        db.query(Issue)
-        .filter(Issue.publication_id == publication.id)
-        .order_by(Issue.imported_at.desc())
-        .all()
-    )
+    issues = db.query(Issue).filter(Issue.publication_id == publication.id).all()
+    issues = _sort_issues(issues, app_settings)
     for issue in issues:
         entry = ET.SubElement(feed, _tag("entry"))
         ET.SubElement(entry, _tag("id")).text = f"urn:kioskarr:issue:{issue.id}"

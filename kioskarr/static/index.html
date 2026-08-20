@@ -418,6 +418,20 @@
                   should just use <span class="mono">/opds</span> with your normal login instead. "Reload"
                   generates a new token — any reader app using the old URL stops working until updated.</span>
               </div>
+              <div class="field">
+                <label>Sort issues by</label>
+                <select x-model="settings.opds_sort_column">
+                  <option value="imported_at">Date imported</option>
+                  <option value="identifier">Issue date / number</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Sort direction</label>
+                <select x-model="settings.opds_sort_direction">
+                  <option value="desc">Newest first</option>
+                  <option value="asc">Oldest first</option>
+                </select>
+              </div>
 
               <div class="form-actions">
                 <button type="submit" class="btn btn-primary">Save Settings</button>
