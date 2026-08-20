@@ -67,6 +67,8 @@ function app() {
     form: {},
     previewResults: null,
     previewLoading: false,
+    libraryRoot: "",
+    targetDirTouched: false,
 
     get showLogin() {
       return this.auth.auth_required && !this.auth.authenticated;
@@ -189,6 +191,8 @@ function app() {
     async enterPublicationForm(id) {
       this.previewResults = null;
       this.previewLoading = false;
+      this.libraryRoot = "";
+      this.targetDirTouched = false;
       if (id) {
         try {
           const pub = await apiFetch(`/publications/${id}`);
@@ -210,6 +214,14 @@ function app() {
           monitored: true,
           baseline_identifier: null,
         };
+        // Best-effort — if this fails, the target directory field just starts
+        // blank like it always used to, no different from before this existed.
+        try {
+          const settings = await apiFetch("/settings");
+          this.libraryRoot = settings.library_root || "";
+        } catch (e) {
+          this.libraryRoot = "";
+        }
       }
     },
 
@@ -219,6 +231,24 @@ function app() {
 
     removeAliasRow(index) {
       this.form.aliases.splice(index, 1);
+    },
+
+    // Only for a brand-new publication, and only until the user edits the
+    // target directory themselves — mirrors the common "slug follows title
+    // until manually touched" pattern rather than fighting the user's own edit.
+    updateSuggestedTargetDir() {
+      if (this.form.id || this.targetDirTouched || !this.libraryRoot) return;
+      const slug = this.form.title
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "") // strip diacritics left behind by NFD normalization
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+      this.form.target_dir = slug ? `${this.libraryRoot.replace(/\/+$/, "")}/${slug}` : "";
+    },
+
+    markTargetDirTouched() {
+      this.targetDirTouched = true;
     },
 
     async savePublication() {

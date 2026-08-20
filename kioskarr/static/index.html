@@ -130,7 +130,7 @@
             <form @submit.prevent="savePublication">
               <div class="field">
                 <label>Title</label>
-                <input type="text" x-model="form.title" required />
+                <input type="text" x-model="form.title" @input="updateSuggestedTargetDir()" required />
               </div>
               <template x-if="!form.id">
                 <div class="field">
@@ -170,7 +170,10 @@
               </div>
               <div class="field">
                 <label>Target directory</label>
-                <input type="text" x-model="form.target_dir" required />
+                <input type="text" x-model="form.target_dir" @input="markTargetDirTouched()" required />
+                <span class="hint" x-show="!form.id && libraryRoot">
+                  Auto-filled from the library root — edit freely, it stops following the title once changed.
+                </span>
               </div>
               <div class="field">
                 <label>Grab last N (cold start)</label>
